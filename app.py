@@ -161,11 +161,41 @@ OUTPUTSIZE_MAP = {
 }
 
 st.set_page_config(page_title="Аналітик новин", page_icon="📰", layout="wide")
+
 st.markdown(
     """
     <style>
         footer {visibility: hidden;}
-        .block-container {padding-top: 1.5rem;}
+        
+        /* Компактні відступи для мобільних пристроїв */
+        .block-container {
+            padding-top: 1rem !important;
+            padding-bottom: 1rem !important;
+            padding-left: 0.5rem !important;
+            padding-right: 0.5rem !important;
+            max-width: 100% !important;
+        }
+
+        /* Адаптація для екранів телефонів (до 768px) */
+        @media screen and (max-width: 768px) {
+            /* Перетворюємо всі горизонтальні колонки у вертикальний список */
+            [data-testid="column"] {
+                width: 100% !important;
+                flex: 1 1 100% !important;
+                min-width: 100% !important;
+            }
+
+            /* Збільшуємо кнопки, щоб зручно натискати пальцем */
+            .stButton > button {
+                width: 100% !important;
+                min-height: 44px !important;
+            }
+
+            /* Зменшуємо шрифти заголовків для економії місця */
+            h1 { font-size: 1.5rem !important; }
+            h2 { font-size: 1.25rem !important; }
+            h3 { font-size: 1.1rem !important; }
+        }
     </style>
     """,
     unsafe_allow_html=True,
@@ -508,19 +538,22 @@ def render_price_chart(points: list[dict], title: str, chart_type: str, key: str
     x_fixed = False
     y_fixed = False
 
-    layout_height = max(320, min(1600, int(560 * float(vertical_scale))))
+    # Базова висота 400px (замість 560px), адаптивна під ползунок масштабу
+    layout_height = max(280, min(800, int(400 * float(vertical_scale))))
+    
     fig.update_layout(
         uirevision=key,
         dragmode=layout_dragmode,
         height=layout_height,
-        margin=dict(l=10, r=10, t=30, b=10),
+        # Мінімальні відступи по боках, щоб графік займав всю ширину екрана смартфона
+        margin=dict(l=5, r=5, t=25, b=5),
         # Темна тема як на TradingView
         template='plotly_dark',
         paper_bgcolor='#131722',
         plot_bgcolor='#131722',
-        font=dict(color='#d1d4dc', size=12),
+        font=dict(color='#d1d4dc', size=10), # Менший шрифт під мобільні
         # Сітка
-            xaxis=dict(
+        xaxis=dict(
             showgrid=True,
             gridcolor='#2a2e39',
             gridwidth=0.5,
@@ -528,26 +561,13 @@ def render_price_chart(points: list[dict], title: str, chart_type: str, key: str
             showline=True,
             linecolor='#2a2e39',
             linewidth=1,
-            tickfont=dict(color='#787b86'),
+            tickfont=dict(color='#787b86', size=9),
             type='date',
             fixedrange=x_fixed,
-            rangeslider=dict(visible=False, thickness=0.05),
-            rangeselector=dict(
-                bgcolor='#131722',
-                activecolor='#2a2e39',
-                bordercolor='#2a2e39',
-                borderwidth=1,
-                x=0,
-                xanchor='left',
-                y=1.12,
-                yanchor='bottom',
-                buttons=[
-                    dict(count=1, label='1д', step='day', stepmode='backward'),
-                    dict(count=7, label='7д', step='day', stepmode='backward'),
-                    dict(count=1, label='1м', step='month', stepmode='backward'),
-                    dict(step='all', label='Увесь період'),
-                ],
-            ),
+            rangeslider=dict(visible=False),
+            # На смартфонах кнопки rangeselector накладаються на заголовок, 
+            # тому їх краще приховати (вибір періоду вже є у вашому Streamlit UI)
+            rangeselector=dict(visible=False),
         ),
         yaxis=dict(
             showgrid=True,
@@ -557,7 +577,7 @@ def render_price_chart(points: list[dict], title: str, chart_type: str, key: str
             showline=True,
             linecolor='#2a2e39',
             linewidth=1,
-            tickfont=dict(color='#787b86'),
+            tickfont=dict(color='#787b86', size=9),
             tickprefix='$',
             fixedrange=y_fixed,
         ),
@@ -569,24 +589,24 @@ def render_price_chart(points: list[dict], title: str, chart_type: str, key: str
             showline=True,
             linecolor='#2a2e39',
             linewidth=1,
-            tickfont=dict(color='#787b86'),
+            tickfont=dict(color='#787b86', size=9),
             fixedrange=y_fixed,
         ),
-        # Легенда
+        # Легенда — компактна зверху зліва
         showlegend=True,
         legend=dict(
             orientation="h",
             yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1,
-            bgcolor='rgba(19, 23, 34, 0.8)',
-            font=dict(color='#d1d4dc', size=11)
+            y=1.01,
+            xanchor="left",
+            x=0,
+            bgcolor='rgba(19, 23, 34, 0.6)',
+            font=dict(color='#d1d4dc', size=9)
         ),
         hovermode='x unified',
         hoverlabel=dict(
             bgcolor='#2a2e39',
-            font_size=12,
+            font_size=11,
             font_color='#d1d4dc'
         )
     )
@@ -716,9 +736,36 @@ def _render_market_dashboard_body(category: str, watchlist: list[str]) -> None:
                 st.markdown(
                     """
                     <style>
-                    .st-key-stock_header div[data-testid="stVerticalBlock"] { gap: 0.15rem; }
-                    .st-key-stock_header div[data-testid="stElementContainer"] { margin: 0 !important; }
-                    .st-key-stock_header iframe { display: block; }
+                        /* Зменшуємо відступи для мобільних екранів */
+                        .block-container {
+                            padding-top: 1rem !important;
+                            padding-bottom: 1rem !important;
+                            padding-left: 0.8rem !important;
+                            padding-right: 0.8rem !important;
+                        }
+                        
+                        /* Автоматично переносимо колонки новин в один стовпчик на смартфонах */
+                        @media (max-width: 768px) {
+                            [data-testid="column"] {
+                                width: 100% !important;
+                                flex: 1 1 100% !important;
+                                min-width: 100% !important;
+                            }
+                            
+                            /* Збільшуємо розмір кнопок для зручного натискання пальцем */
+                            .stButton > button {
+                                width: 100% !important;
+                                min-height: 48px !important;
+                                font-size: 16px !important;
+                            }
+                            
+                            /* Адаптуємо розмір заголовків */
+                            h1 { font-size: 1.6rem !important; }
+                            h2 { font-size: 1.3rem !important; }
+                            h3 { font-size: 1.1rem !important; }
+                        }
+                        
+                        footer { visibility: hidden; }
                     </style>
                     """,
                     unsafe_allow_html=True,
@@ -801,20 +848,26 @@ def _render_market_dashboard_body(category: str, watchlist: list[str]) -> None:
                     
                     # Приклад більш зрозумілого блока управління
                     interval_options = CRYPTO_CHART_INTERVALS.get("1Д", ["1хв", "5хв", "15хв"])
-                    col_tf, col_interval, col_crypto, col_type = st.columns([1.1, 1.1, 1.4, 1.4])
-                    with col_tf:
+                    # --- ВСТАВИТИ ЦЕЙ АДАПТИВНИЙ БЛОК: ---
+                    # Повністю видаліть старий рядок col_tf, col_interval, col_crypto, col_type = st.columns(...)
+                    # Вставте ЗАМІСТЬ нього цей єдиний блок:
+
+                    row1_col1, row1_col2 = st.columns(2)
+                    with row1_col1:
                         timeframes_crypto = st.radio(
                             "Період",
                             ("1Д", "7Д", "30Д"),
                             horizontal=True,
                             key="timeframe_crypto"
                         )
-                    with col_interval:
+                    with row1_col2:
                         interval_options = CRYPTO_CHART_INTERVALS.get(timeframes_crypto, ["1д"])
                         selected_interval = st.selectbox("Інтервал", interval_options, key="crypto_interval")
-                    with col_crypto:
+
+                    row2_col1, row2_col2 = st.columns(2)
+                    with row2_col1:
                         selected_crypto = st.selectbox("Актив", labels, key="crypto_chart")
-                    with col_type:
+                    with row2_col2:
                         crypto_chart_type = st.radio(
                             "Тип",
                             ("Лінійний", "Свічковий"),
