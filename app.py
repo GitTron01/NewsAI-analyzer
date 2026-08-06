@@ -28,6 +28,7 @@ load_dotenv()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY")
 TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY")
 COINMARKETCAP_API_KEY = os.getenv("COINMARKETCAP_API_KEY")
 RSS_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -367,13 +368,6 @@ def format_usd(value) -> str:
     return f"${value:,.6f}"
 
 
-from datetime import datetime, timezone
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import pandas as pd
-import streamlit as st
-
-
 def render_price_chart(
     points: list[dict],
     title: str,
@@ -485,11 +479,14 @@ def render_price_chart(
     closes = df["close"].tolist()
     # Перевіряємо та підтягуємо об'єм
     volumes = []
+    volume_is_estimated = []
     for _, row in df.iterrows():
         v = row.get("volume")
-        # Якщо API Twelve Data не дає об'єм для крипти (або повертає 0/NaN)
+        # Якщо API Twelve Data не дає об'єм для крипти (або повертає 0/NaN),
+        # показуємо УМОВНИЙ об'єм на основі амплітуди свічки (High - Low) —
+        # це не реальні дані біржі, лише орієнтовна оцінка, тому позначаємо
+        # її окремо і підписуємо на графіку як "оцінка", щоб не ввести в оману.
         if v is None or pd.isna(v) or float(v) == 0:
-            # Вираховуємо умовний об'єм на основі амплітуди свічки (High - Low)
             spread = abs(row["high"] - row["low"])
             fake_vol = (
                 spread * row["close"] * 10
@@ -497,14 +494,14 @@ def render_price_chart(
                 else row["close"] * 0.1
             )
             volumes.append(fake_vol)
+            volume_is_estimated.append(True)
         else:
             volumes.append(float(v))
+            volume_is_estimated.append(False)
 
     df["volume"] = volumes
     has_volume_data = any(v > 0 for v in volumes)
-
-    # Перевіряємо, чи є реальні дані об'єму в масиві
-    has_volume_data = any(v > 0 for v in volumes)
+    has_estimated_volume = any(volume_is_estimated)
 
     # Якщо об'єму немає взагалі, робимо 1 ряд, якщо є — ділимо 75% / 25%
     if has_volume_data:
@@ -583,12 +580,13 @@ def render_price_chart(
         volume_colors = [
             "#26a69a" if c >= o else "#ef5350" for o, c in zip(opens, closes)
         ]
+        volume_label = "Обʼєм (оцінка)" if has_estimated_volume else "Обʼєм"
         fig.add_trace(
             go.Bar(
                 x=dates,
                 y=volumes,
                 marker_color=volume_colors,
-                name="Обʼєм",
+                name=volume_label,
                 opacity=0.75,
                 showlegend=False,
             ),
@@ -596,8 +594,10 @@ def render_price_chart(
             col=1,
         )
         fig.update_yaxes(
-            title_text="Обʼєм", row=2, col=1, tickfont=dict(color="#787b86")
+            title_text=volume_label, row=2, col=1, tickfont=dict(color="#787b86")
         )
+        if has_estimated_volume:
+            st.caption("⚠️ Об'єм для цього активу недоступний з API — показана орієнтовна оцінка на основі амплітуди свічки, а не реальні дані біржі.")
 
     if title:
         st.markdown(f"### {title}")
@@ -930,10 +930,14 @@ def _market_dashboard_paused(category: str, watchlist: list[str]) -> None:
     _render_market_dashboard_body(category, watchlist)
 
 
-def render_market_dashboard(category: str, watchlist: list[str]) -> None:
+def render_market_dashboard(category: str, watchlist: list[str], force_paused: bool = False) -> None:
     if category not in ("Фінанси", "Криптовалюти", "Ілон Маск / компанії"):
         return
-    paused = st.session_state.get("market_autorefresh_paused", False)
+    # force_paused=True вимикає авто-оновлення (30s фрагмент) під час аналізу
+    # статей LLM: фонове оновлення ринку посеред довгого циклу аналізу може
+    # спричиняти передчасний перерендер сторінки, через що готовий текст
+    # аналізу "губиться" і з'являється лише після наступного кліку.
+    paused = force_paused or st.session_state.get("market_autorefresh_paused", False)
     if paused:
         _market_dashboard_paused(category, watchlist)
     else:
@@ -1324,10 +1328,12 @@ if hours is None:
 
 watchlist = [item.strip() for item in watchlist_text.split(",") if item.strip()]
 
-def render_top(result):
+def render_top(result, force_paused: bool = False):
     """Малює блок статей і ринковий дашборд. Викликається одразу після
     збору статей (аналіз ще не готовий) і повторно на звичайних rerun'ах
-    (перемикання активу тощо) — з result, узятого із session_state."""
+    (перемикання активу тощо) — з result, узятого із session_state.
+    force_paused=True — під час фонового аналізу LLM, щоб авто-оновлення
+    ринку не заважало відображенню готового тексту аналізу."""
     r_category = result["category"]
     r_articles = result["all_articles"]
 
@@ -1368,7 +1374,7 @@ def render_top(result):
                     st.write(f"«{article['title'][:70]}» → {article['link']}")
                     shown += 1
 
-    render_market_dashboard(r_category, result["watchlist"])
+    render_market_dashboard(r_category, result["watchlist"], force_paused=force_paused)
 
     left_articles, analysis_column, right_articles = st.columns((1.6, 2, 1.6), gap="large")
     with left_articles:
@@ -1479,7 +1485,7 @@ if run_analysis:
         "analysis_attempts": [],
         "text_diagnostics": [],
     }
-    analysis_column = render_top(st.session_state["result"])
+    analysis_column = render_top(st.session_state["result"], force_paused=True)
     with analysis_column:
         analysis_placeholder = st.empty()
     render_analysis(analysis_placeholder, st.session_state["result"])
@@ -1545,22 +1551,23 @@ if run_analysis:
 Категорія: {category}. Тема: {topic}. Відстежувані активи/компанії: {', '.join(watchlist) or 'не вказано'}.
 
 
-ПРАВИЛА:
-1. Спирайся ЛИШЕ на факти з наданих матеріалів. Не вигадуй фактів, яких немає в тексті.
-2. Посилайся на джерела за назвою (наприклад, «за даними Reuters...»).
-3. Якщо інформації про якісь сфери (ринки, технології тощо) у джерелах немає — прямо вкажи це, а не додумай.
-4. Будь ласка, дотримуйся чіткої та стислої мови. Кожен із 5 пунктів має бути обсягом 60–90 слів, щоб увесь звіт повністю вмістився у відповідь.
-5. Виводь ТІЛЬКИ готовий текст аналітичного звіту без будь-яких приміток чи службових коментарів.
+ЖОРСТКІ ПРАВИЛА ТА ОБМЕЖЕННЯ (NO OUTER KNOWLEDGE):
+1. Аналізуй ВИКЛЮЧНО надані матеріали. Заборонено додавати факти, події або контекст, яких немає в тексті (наприклад, вигадувати ракетні випробування чи футбольні турніри).
+2. КАТЕГОРИЧНО ЗАБОРОНЕНО згадувати будь-які сторонні компанії, активи чи технології (наприклад: Tesla, Nvidia, Apple, Bitcoin, Ethereum, Solana тощо), якщо вони прямо не згадуються у вхідних статтях. Навіть у розділі "Сліпі плями" не вигадуй відсутні ринки чи тікери, якщо їх немає в тексті новин.
+3. ПОКРИТТЯ РЕГІОНІВ (ЛИШЕ ЯКЩО Є В МАТЕРІАЛАХ): Якщо надані статті охоплюють кілька регіонів (Україна/Європа, Близький Схід, Азія тощо) — збалансовано врахуй їх усі у висновках. Якщо новин з якогось регіону в корпусі немає — просто не згадуй цей регіон, а не вигадуй його присутність..
+4. Посилайся на джерела за назвою (наприклад, «за даними Reuters...», «як повідомляє Укрінформ...»).
+5. Дотримуйся чіткої, стислої та аналітичної мови. Кожен із 5 пунктів структури має бути обсягом 60–90 слів.
+6. Виводь ТІЛЬКИ готовий текст аналітичного звіту. Жодних приміток, вступів чи службових коментарів.
 
-Матеріали:
+НАДАНИЙ НОВИННИЙ КОРПУС СТАТЕЙ:
 {raw_text}
 
-Структура звіту:
-1. **Глибокий контекст та Головна суть** — що саме сталося, передумови та важливість. (2+ деталі)
-2. **Порівняльний аналіз та достовірність джерел** — акценти джерел та рівень довіри до них.
-3. **Причинно-наслідкові зв'язки** — реальний вплив на суміжні сфери (якщо описано в джерелах).
-4. **Сліпі плями та приховані ризики** — що джерела залишають без відповіді чи замалчують.
-5. **Стратегічний прогноз** — короткострокові та довгострокові наслідки, 3–4 конкретні маркери для спостереження.
+СТРУКТУРА ЗВІТУ (Виведи строго ці 5 пунктів):
+1. **Глибокий контекст та Головна суть** — що саме сталося, передумови та важливість подій (мінімум 2 конкретні деталі з тексту).
+2. **Порівняльний аналіз та достовірність джерел** — акценти різних джерел та рівень довіри до них у межах наданих текстів.
+3. **Причинно-наслідкові зв'язки** — реальний вплив подій на суміжні сфери, які чітко описані в статтях.
+4. **Сліпі плями та приховані ризики** — що саме надані джерела залишають без відповіді, замалчують або недоговорюють у межах цих тем. Якщо інформації про якісь сфери (ринки, активи тощо) взагалі немає — прямо вкажи це ("інформація про фінансові ринки/технології відсутня у тексті"), а не додумуй.
+5. **Стратегічний прогноз** — короткострокові та довгострокові наслідки, а також 3–4 конкретні маркери для подальшого спостереження, які випливають із текстів.
 """
 
     SYSTEM_INSTRUCTION_UK = (
@@ -1616,73 +1623,177 @@ if run_analysis:
         # надійний запасний варіант. OpenRouter — останній резерв (там
         # ліміт добовий, а не хвилинний, тож раз вичерпаний — довго не
         # відновиться).
+        # ---------------------------------------------------------
+        # 🔹 ДОПОМІЖНА ФУНКЦІЯ БЕЗПЕЧНОГО ЧИТАННЯ СЕКРЕТІВ
+        # ---------------------------------------------------------
+        def _fetch_secret(key_name: str):
+            try:
+                if key_name in st.secrets and st.secrets[key_name]:
+                    val = str(st.secrets[key_name]).strip()
+                    if val:
+                        return val
+            except Exception:
+                pass
+            val_env = os.getenv(key_name)
+            return val_env.strip() if val_env else None
+
+        # ---------------------------------------------------------
+        # 🔹 1. ДИНАМІЧНИЙ ЗБІР УСІХ КЛЮЧІВ GEMINI
+        # ---------------------------------------------------------
+        gemini_candidates = []
+
+        # а) Збираємо з os.environ (.env)
+        for env_key, env_val in os.environ.items():
+            if env_key.startswith("GEMINI_API_KEY") and env_val and env_val.strip():
+                gemini_candidates.append(env_val.strip())
+
+        # б) Збираємо з st.secrets (Streamlit Cloud / secrets.toml)
+        try:
+            for sec_key in list(st.secrets.keys()):
+                if sec_key.startswith("GEMINI_API_KEY"):
+                    sec_val = st.secrets[sec_key]
+                    if sec_val and isinstance(sec_val, str) and sec_val.strip():
+                        gemini_candidates.append(sec_val.strip())
+        except Exception:
+            pass
+
+        # в) Видаляємо дублікати
+        gemini_keys = list(dict.fromkeys(gemini_candidates))
+
         providers = []
-        if GEMINI_API_KEY:
+
+        # 🔹 2. Актуальні моделі Gemini (станом на зараз).
+        # gemini-2.0-flash / gemini-2.0-flash-lite / gemini-1.5-flash-8b
+        # прибрано зі списку — Google вже вивів їх з експлуатації, тож
+        # кожна спроба аналізу спершу марно "билась" об ці мертві моделі
+        # (чекаючи таймаут/помилку), перш ніж дійти до робочих, — це і
+        # було однією з причин, чому результат довго не з'являвся.
+        gemini_models = [
+            "gemini-3.6-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
+        ]
+
+        for i, key in enumerate(gemini_keys, 1):
             providers.append({
-                "name": "Gemini",
+                "name": f"Gemini #{i}" if len(gemini_keys) > 1 else "Gemini",
                 "native": True,
-                "api_key": GEMINI_API_KEY,
-                # Розташовуємо від найшвидших/легших до потужніших
-                "models": [
-                    "gemini-2.5-flash-lite",
-                    "gemini-3.5-flash",
-                    "gemini-3.6-flash",
-                    "gemini-2.0-flash",
-                    "gemini-1.5-flash",
-                    "gemini-1.5-pro",
-                    "gemini-2.0-flash-lite",
-                ],
+                "api_key": key,
+                "models": gemini_models,
             })
-        if GROQ_API_KEY:
+            
+        # 2. ДОДАЄМО CEREBRAS (Працює через стандартну бібліотеку OpenAI)
+        cerebras_key = _fetch_secret("CEREBRAS_API_KEY")
+        if cerebras_key:
+            providers.append({
+                "name": "Cerebras",
+                "native": False,
+                "base_url": "https://api.cerebras.ai/v1",
+                "api_key": cerebras_key,
+                "models": [
+                    "llama-3.3-70b",
+                    "llama3.1-8b",
+                ],
+            })    
+
+        # 🔹 3. Groq (з резервною 8b-моделлю)
+        groq_key = _fetch_secret("GROQ_API_KEY")
+        if groq_key:
             providers.append({
                 "name": "Groq",
+                "native": False,
                 "base_url": "https://api.groq.com/openai/v1",
-                "api_key": GROQ_API_KEY,
-                "models": ["llama-3.3-70b-versatile", "openai/gpt-oss-120b"],
+                "api_key": groq_key,
+                "models": [
+                    "llama-3.3-70b-versatile",
+                    "llama-3.1-8b-instant",
+                ],
             })
-        if OPENROUTER_API_KEY:
+
+        # 🔹 4. OpenRouter (актуальні безкоштовні слаги)
+        openrouter_key = _fetch_secret("OPENROUTER_API_KEY")
+        if openrouter_key:
             providers.append({
                 "name": "OpenRouter",
+                "native": False,
                 "base_url": "https://openrouter.ai/api/v1",
-                "api_key": OPENROUTER_API_KEY,
-                "models": ["openrouter/free"],
-                "extra_body": {
-                    "models": [
-                        "qwen/qwen3-next-80b-a3b-instruct:free",
-                        "openai/gpt-oss-20b:free",
-                    ]
-                },
+                "api_key": openrouter_key,
+                "models": [
+                    "qwen/qwen-2.5-72b-instruct:free",
+                    "deepseek/deepseek-r1:free",
+                ],
             })
 
+        errors = []
+        analysis_text = None
+        analysis_meta = None
+        analysis_error = None
+        current_diagnostics = text_diagnostics
+
+        # 🔹 Перевірка 1: Чи знайшовся хоча б один провайдер
         if not providers:
-            analysis_error = "Не знайдено жодного ключа (GEMINI_API_KEY, GROQ_API_KEY або OPENROUTER_API_KEY) у файлі .env"
+            analysis_error = "Не знайдено жодного API-ключа у Secrets чи змінних середовища (.env)"
+            st.session_state["result"].update({
+                "analysis_text": None,
+                "analysis_error": analysis_error,
+                "analysis_meta": None,
+                "analysis_attempts": [],
+                "text_diagnostics": current_diagnostics,
+            })
+            render_analysis(analysis_placeholder, st.session_state["result"])
+
+        # 🔹 Перевірка 2: Чи є статті для аналізу
+        elif not articles_for_analysis:
+            analysis_error = "Список статей порожній або не сформований. Немає даних для аналізу."
+            st.session_state["result"].update({
+                "analysis_text": None,
+                "analysis_error": analysis_error,
+                "analysis_meta": None,
+                "analysis_attempts": [],
+                "text_diagnostics": current_diagnostics,
+            })
+            render_analysis(analysis_placeholder, st.session_state["result"])
+
         else:
-            # Кожен крок — (кількість статей, символів на статтю). Якщо
-            # сервер відповідає «забагато токенів», беремо наступний,
-            # менший крок і пробуємо той самий провайдер/модель знову —
-            # замість того, щоб одразу здаватись і йти до іншого провайдера.
+            articles_list = articles_for_analysis
             size_steps = [
-                (len(articles_for_analysis), 1600),
-                (10, 900),
-                (7, 600),
-                (5, 400),
-                (3, 300),
+                (len(articles_list), 1600),
+                (min(10, len(articles_list)), 900),
+                (min(7, len(articles_list)), 600),
+                (min(5, len(articles_list)), 400),
+                (min(3, len(articles_list)), 300),
             ]
 
-            errors = []
             for provider in providers:
+                if analysis_text is not None:
+                    break
+
                 client = None
                 if not provider.get("native"):
-                    client = OpenAI(
-                        base_url=provider["base_url"],
-                        api_key=provider["api_key"],
-                    )
+                    try:
+                        client = OpenAI(
+                            base_url=provider["base_url"],
+                            api_key=provider["api_key"],
+                        )
+                    except Exception as e:
+                        errors.append(f"{provider['name']} Init Error: {e}")
+                        continue
+
                 for model_name in provider["models"]:
+                    if analysis_text is not None:
+                        break
+
                     for article_count, char_cap in size_steps:
-                        prompt_text = build_prompt(articles_for_analysis[:article_count], char_cap)
+                        try:
+                            prompt_text = build_prompt(articles_list[:article_count], char_cap)
+                        except Exception as p_err:
+                            errors.append(f"Prompt Build Error: {p_err}")
+                            break
+
                         max_out_tokens = 2048 if provider["name"] == "Groq" else 3000
-                        
-                        # 🔹 Інформуємо користувача про поточну модель
+                        temperature = 0.15  # 👈 Додай це тут
+
                         analysis_placeholder.info(
                             f"🧠 Аналізую статті за допомогою **{provider['name']} / {model_name}** "
                             f"({article_count} ст., до {char_cap} симв.)..."
@@ -1690,29 +1801,35 @@ if run_analysis:
 
                         try:
                             if provider.get("native"):
-                                analysis_text = call_gemini_native(
-                                    model_name, 
-                                    prompt_text, 
+                                current_text = call_gemini_native(
+                                    model_name,
+                                    prompt_text,
                                     provider["api_key"],
                                     max_tokens=max_out_tokens,
-                                    temperature=0.4,
+                                    temperature=temperature,  # 👈 А сюди передай змінну
                                 )
                             else:
-                                completion = client.chat.completions.create(
+                                if not client:
+                                    raise RuntimeError("OpenAI client не ініціалізовано")
+
+                                completion = client.chat.completions.create(  # 👈 ТУТ МАЄ БУТИ client.chat.completions.create (без додаткового .client)
                                     model=model_name,
                                     messages=[{"role": "user", "content": prompt_text}],
                                     max_tokens=max_out_tokens,
-                                    temperature=0.4,
+                                    temperature=temperature,
                                     extra_body=provider.get("extra_body"),
                                 )
-                                # 1. Забираємо текст (з урахуванням можливого None)
                                 raw_content = completion.choices[0].message.content or ""
-                                analysis_text = raw_content.strip()
+                                # Очищення від процесів міркування (DeepSeek-R1)
+                                if "<thought>" in raw_content and "</thought>" in raw_content:
+                                    raw_content = raw_content.split("</thought>")[-1]
+                                current_text = raw_content.strip()
 
-                                # 2. Якщо модель повернула порожній текст — вважаємо це помилкою та йдемо до наступної!
-                                if not analysis_text:
-                                    raise RuntimeError("Модель повернула порожню відповідь (0 символів)")
+                            if not current_text:
+                                raise RuntimeError("Модель повернула порожню відповідь (0 символів)")
 
+                            analysis_text = current_text
+                            analysis_error = None
                             analysis_meta = {
                                 "provider": provider["name"],
                                 "model": model_name,
@@ -1720,56 +1837,52 @@ if run_analysis:
                                 "char_cap": char_cap,
                             }
 
-                            # 🔹 КЛЮЧОВЕ ВИПРАВЛЕННЯ: Відразу зберігаємо і малюємо результат у плейсхолдер!
                             st.session_state["result"].update({
                                 "analysis_text": analysis_text,
                                 "analysis_error": None,
                                 "analysis_meta": analysis_meta,
-                                "analysis_attempts": errors if providers else [],
-                                "text_diagnostics": text_diagnostics,
+                                "analysis_attempts": errors,
+                                "text_diagnostics": current_diagnostics,
                             })
                             render_analysis(analysis_placeholder, st.session_state["result"])
-
-                            break  # Успіх — виходимо з циклу size_steps
+                            break
 
                         except Exception as error:
                             err_msg = str(error).lower()
                             errors.append(f"{provider['name']}/{model_name} ({article_count} ст., {char_cap} симв.): {error}")
-                            
-                            # 1. Якщо вичерпано ліміт/квоту (429) — одразу беремо НАСТУПНУ модель
+
                             if "429" in err_msg or "quota" in err_msg or "rate limit" in err_msg or "resource_exhausted" in err_msg:
-                                break  # перехід до наступної моделі в циклі model_name
+                                break
 
-                            # 2. Якщо переповнено контекст/токени (413 / too long) — зменшуємо розмір і пробуємо знову
                             if "context_length_exceeded" in err_msg or "too long" in err_msg or "413" in err_msg or _is_size_error(error):
-                                continue  # пробуємо наступний крок size_steps (менше статей/символів)
+                                continue
 
-                            # 3. Для всіх інших помилок — переходимо до наступної моделі
                             break
 
-                    if analysis_text is not None:
-                        break
-                if analysis_text is not None:
-                    break
-
-            if analysis_text is None:
+            if analysis_text is None and errors:
                 analysis_error = " | ".join(errors)
 
-    # Дописуємо готовий аналіз у ТОЙ САМИЙ плейсхолдер під статтями —
-    # блок статей уже на екрані і не перемальовується.
+    # Фінальне оновлення стану
     st.session_state["result"].update({
         "analysis_text": analysis_text,
         "analysis_error": analysis_error,
         "analysis_meta": analysis_meta,
         "analysis_attempts": errors if providers else [],
-        "text_diagnostics": text_diagnostics,
+        "text_diagnostics": current_diagnostics,
     })
-    render_text_diagnostics(text_diagnostics)
+
+    render_text_diagnostics(st.session_state["result"]["text_diagnostics"])
     render_analysis(analysis_placeholder, st.session_state["result"])
 
+    # Аналіз повністю готовий і вже збережений у session_state. Форсуємо
+    # один чистий rerun: далі сторінка малюється простим і надійним шляхом
+    # (гілка "elif result in session_state" нижче) замість того, щоб
+    # покладатись на живе оновлення плейсхолдера посеред довгого циклу —
+    # саме це раніше іноді призводило до того, що готовий текст аналізу
+    # не з'являвся сам, поки користувач щось не натисне.
+    st.rerun()
+
 elif "result" in st.session_state:
-    # Звичайний rerun (перемикання активу, автооновлення цін тощо) —
-    # кнопку не натискали, просто перемальовуємо збережений результат.
     result = st.session_state["result"]
     analysis_column = render_top(result)
     render_text_diagnostics(result.get("text_diagnostics", []))
