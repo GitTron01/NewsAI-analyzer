@@ -161,6 +161,45 @@ OUTPUTSIZE_MAP = {
     ("30Д", "1д"): 30,
 }
 
+# Дві палітри для графіка ціни/об'єму. Об'єм навмисно має ЯСКРАВІ, окремі
+# від свічок кольори (не просто затемнений варіант того самого зеленого/
+# червоного) — щоб стовпчики об'єму завжди чітко відрізнялись від фону,
+# незалежно від теми.
+CHART_THEMES = {
+    "Темна": {
+        "plotly_template": "plotly_dark",
+        "paper_bgcolor": "#242c3d",
+        "plot_bgcolor": "#242c3d",
+        "grid_color": "#3a4258",
+        "line_color": "#3a4258",
+        "font_color": "#d1d4dc",
+        "tick_color": "#9aa3b5",
+        "price_line_color": "#FFFFFF",
+        "candle_up": "#26a69a",
+        "candle_down": "#ef5350",
+        "volume_color": "#5ee6f2",
+        "hover_bg": "#3a4258",
+        "legend_bg": "rgba(36, 44, 61, 0.75)",
+        "hline_color": "#9aa3b5",
+    },
+    "Світла": {
+        "plotly_template": "plotly_white",
+        "paper_bgcolor": "#ffffff",
+        "plot_bgcolor": "#ffffff",
+        "grid_color": "#e3e7ee",
+        "line_color": "#d6dae3",
+        "font_color": "#1f2a3b",
+        "tick_color": "#5b6472",
+        "price_line_color": "#1f2a3b",
+        "candle_up": "#0f9d78",
+        "candle_down": "#d92c4a",
+        "volume_color": "#0f5c66",
+        "hover_bg": "#eef1f6",
+        "legend_bg": "rgba(255,255,255,0.9)",
+        "hline_color": "#5b6472",
+    },
+}
+
 st.set_page_config(page_title="Аналітик новин", page_icon="📰", layout="wide")
 
 st.markdown(
@@ -191,11 +230,24 @@ st.markdown(
 
         /* Адаптація для екранів телефонів (до 768px) */
         @media screen and (max-width: 768px) {
-            /* Перетворюємо всі горизонтальні колонки у вертикальний список */
+            /* Перетворюємо всі горизонтальні колонки у вертикальний список.
+               ВАЖЛИВО: самого "width: 100%" на колонках недостатньо — без
+               явного flex-direction:column батьківський блок лишався
+               флекс-рядком, тому колонки й далі тиснули одна на одну в
+               рядок і обрізались через overflow-x:hidden вище. Через це,
+               зокрема, блок аналізу здавлювався між блоками статей. */
+            [data-testid="stHorizontalBlock"] {
+                flex-direction: column !important;
+                height: auto !important;
+                align-items: stretch !important;
+            }
             [data-testid="column"] {
                 width: 100% !important;
                 flex: 1 1 100% !important;
                 min-width: 100% !important;
+                height: auto !important;
+                max-height: none !important;
+                overflow: visible !important;
             }
 
             /* Збільшуємо кнопки, щоб зручно натискати пальцем */
@@ -375,8 +427,10 @@ def render_price_chart(
     key: str,
     interaction_mode: str = "Pan (вільно)",
     vertical_scale: float = 1.0,
+    theme: str = "Темна",
 ) -> None:
     """Чистий професійний графік TradingView з підтримкою об'ємів для Акцій та Крипти"""
+    palette = CHART_THEMES.get(theme, CHART_THEMES["Темна"])
     rows = []
     for point in points:
         quote = point.get("quote", {}).get("USD", point)
@@ -524,8 +578,8 @@ def render_price_chart(
                 low=lows,
                 close=closes,
                 name="Ціна",
-                increasing_line_color="#26a69a",
-                decreasing_line_color="#ef5350",
+                increasing_line_color=palette["candle_up"],
+                decreasing_line_color=palette["candle_down"],
                 line_width=1,
                 whiskerwidth=0.5,
             ),
@@ -539,7 +593,7 @@ def render_price_chart(
                 y=closes,
                 mode="lines",
                 name="Лінія ціни",
-                line=dict(color="#FFFFFF", width=1.5),
+                line=dict(color=palette["price_line_color"], width=1.5),
                 hoverinfo="skip",
             ),
             row=1,
@@ -577,24 +631,24 @@ def render_price_chart(
 
     # 📊 Малювання стовпчиків об'єму для Крипти / Акцій
     if has_volume_data:
-        volume_colors = [
-            "#26a69a" if c >= o else "#ef5350" for o, c in zip(opens, closes)
-        ]
         volume_label = "Обʼєм (оцінка)" if has_estimated_volume else "Обʼєм"
         fig.add_trace(
             go.Bar(
                 x=dates,
                 y=volumes,
-                marker_color=volume_colors,
+                marker=dict(
+                    color=palette["volume_color"],
+                    line=dict(color=palette["plot_bgcolor"], width=0.5),
+                ),
                 name=volume_label,
-                opacity=0.75,
+                opacity=1.0,
                 showlegend=False,
             ),
             row=2,
             col=1,
         )
         fig.update_yaxes(
-            title_text=volume_label, row=2, col=1, tickfont=dict(color="#787b86")
+            title_text=volume_label, row=2, col=1, tickfont=dict(color=palette["tick_color"])
         )
         if has_estimated_volume:
             st.caption("⚠️ Об'єм для цього активу недоступний з API — показана орієнтовна оцінка на основі амплітуди свічки, а не реальні дані біржі.")
@@ -610,32 +664,32 @@ def render_price_chart(
         dragmode=layout_dragmode,
         height=layout_height,
         margin=dict(l=5, r=5, t=25, b=5),
-        template="plotly_dark",
-        paper_bgcolor="#131722",
-        plot_bgcolor="#131722",
-        font=dict(color="#d1d4dc", size=10),
+        template=palette["plotly_template"],
+        paper_bgcolor=palette["paper_bgcolor"],
+        plot_bgcolor=palette["plot_bgcolor"],
+        font=dict(color=palette["font_color"], size=10),
         xaxis=dict(
             showgrid=True,
-            gridcolor="#2a2e39",
+            gridcolor=palette["grid_color"],
             gridwidth=0.5,
             zeroline=False,
             showline=True,
-            linecolor="#2a2e39",
+            linecolor=palette["line_color"],
             linewidth=1,
-            tickfont=dict(color="#787b86", size=9),
+            tickfont=dict(color=palette["tick_color"], size=9),
             type="date",
             rangeslider=dict(visible=False),
             rangeselector=dict(visible=False),
         ),
         yaxis=dict(
             showgrid=True,
-            gridcolor="#2a2e39",
+            gridcolor=palette["grid_color"],
             gridwidth=0.5,
             zeroline=False,
             showline=True,
-            linecolor="#2a2e39",
+            linecolor=palette["line_color"],
             linewidth=1,
-            tickfont=dict(color="#787b86", size=9),
+            tickfont=dict(color=palette["tick_color"], size=9),
             tickprefix="$",
         ),
         showlegend=True,
@@ -645,12 +699,12 @@ def render_price_chart(
             y=1.01,
             xanchor="left",
             x=0,
-            bgcolor="rgba(19, 23, 34, 0.6)",
-            font=dict(color="#d1d4dc", size=9),
+            bgcolor=palette["legend_bg"],
+            font=dict(color=palette["font_color"], size=9),
         ),
         hovermode="x unified",
         hoverlabel=dict(
-            bgcolor="#2a2e39", font_size=11, font_color="#d1d4dc"
+            bgcolor=palette["hover_bg"], font_size=11, font_color=palette["font_color"]
         ),
     )
 
@@ -658,13 +712,13 @@ def render_price_chart(
         fig.update_layout(
             yaxis2=dict(
                 showgrid=True,
-                gridcolor="#2a2e39",
+                gridcolor=palette["grid_color"],
                 gridwidth=0.5,
                 zeroline=False,
                 showline=True,
-                linecolor="#2a2e39",
+                linecolor=palette["line_color"],
                 linewidth=1,
-                tickfont=dict(color="#787b86", size=9),
+                tickfont=dict(color=palette["tick_color"], size=9),
             )
         )
 
@@ -673,12 +727,12 @@ def render_price_chart(
         fig.add_hline(
             y=last_price,
             line_dash="dash",
-            line_color="#787b86",
+            line_color=palette["hline_color"],
             opacity=0.5,
             line_width=1,
             annotation_text=f"{last_price:.2f}",
             annotation_position="bottom right",
-            annotation_font_color="#787b86",
+            annotation_font_color=palette["hline_color"],
         )
 
     st.plotly_chart(
@@ -848,7 +902,16 @@ def _render_market_dashboard_body(category: str, watchlist: list[str]) -> None:
             key=f"chart_type_{category}",
         )
 
-    vertical_scale = st.slider("Вертикальний масштаб", 0.3, 3.0, 1.0, 0.1, key=f"v_scale_{category}")
+    row3_col1, row3_col2 = st.columns(2)
+    with row3_col1:
+        chart_theme = st.radio(
+            "Тема графіка",
+            ("Темна", "Світла"),
+            horizontal=True,
+            key=f"chart_theme_{category}",
+        )
+    with row3_col2:
+        vertical_scale = st.slider("Вертикальний масштаб", 0.3, 3.0, 1.0, 0.1, key=f"v_scale_{category}")
 
     # 4. Шапка графіка з кнопкою та таймером
     with st.container(key=f"header_{category}"):
@@ -910,6 +973,7 @@ def _render_market_dashboard_body(category: str, watchlist: list[str]) -> None:
             key=f"chart_{category}_{selected_asset}_{selected_period}_{selected_interval}",
             interaction_mode="Pan (вільно)",
             vertical_scale=vertical_scale,
+            theme=chart_theme,
         )
 
 
@@ -1554,7 +1618,7 @@ if run_analysis:
 ЖОРСТКІ ПРАВИЛА ТА ОБМЕЖЕННЯ (NO OUTER KNOWLEDGE):
 1. Аналізуй ВИКЛЮЧНО надані матеріали. Заборонено додавати факти, події або контекст, яких немає в тексті (наприклад, вигадувати ракетні випробування чи футбольні турніри).
 2. КАТЕГОРИЧНО ЗАБОРОНЕНО згадувати будь-які сторонні компанії, активи чи технології (наприклад: Tesla, Nvidia, Apple, Bitcoin, Ethereum, Solana тощо), якщо вони прямо не згадуються у вхідних статтях. Навіть у розділі "Сліпі плями" не вигадуй відсутні ринки чи тікери, якщо їх немає в тексті новин.
-3. ПОКРИТТЯ РЕГІОНІВ (ЛИШЕ ЯКЩО Є В МАТЕРІАЛАХ): Якщо надані статті охоплюють кілька регіонів (Україна/Європа, Близький Схід, Азія тощо) — збалансовано врахуй їх усі у висновках. Якщо новин з якогось регіону в корпусі немає — просто не згадуй цей регіон, а не вигадуй його присутність..
+3. ВИМОГА ПОКРИТТЯ ВСІХ РЕГІОНІВ: Переконайся, що у висновках збалансовано враховано всі ключові регіональні блоки з новинного корпусу (включаючи події в Україні/Європі, Близькому Сході та Азії). Не ігноруй регіональні джерела новин.
 4. Посилайся на джерела за назвою (наприклад, «за даними Reuters...», «як повідомляє Укрінформ...»).
 5. Дотримуйся чіткої, стислої та аналітичної мови. Кожен із 5 пунктів структури має бути обсягом 60–90 слів.
 6. Виводь ТІЛЬКИ готовий текст аналітичного звіту. Жодних приміток, вступів чи службових коментарів.
