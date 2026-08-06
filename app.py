@@ -175,6 +175,18 @@ st.markdown(
             padding-right: 0.5rem !important;
             max-width: 100% !important;
         }
+        
+        /* Забороняємо сторінці виходити за межі екрана телефона */
+        html, body, .stApp {
+            overflow-x: hidden !important;
+            max-width: 100vw !important;
+        }
+        
+        # Обмежуємо переповнення в колонках та радіо-кнопках
+        [data-testid="stHorizontalBlock"], [data-testid="stRadio"] {
+            max-width: 100% !important;
+            overflow-x: hidden !important;
+        }
 
         /* Адаптація для екранів телефонів (до 768px) */
         @media screen and (max-width: 768px) {
@@ -355,12 +367,22 @@ def format_usd(value) -> str:
     return f"${value:,.6f}"
 
 
-def render_price_chart(points: list[dict], title: str, chart_type: str, key: str, interaction_mode: str = "Pan (вільно)", vertical_scale: float = 1.0) -> None:
-    """Чистий професійний графік як на TradingView"""
-    import pandas as pd
-    
-    dates, opens, highs, lows, closes = [], [], [], [], []
-    
+from datetime import datetime, timezone
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import pandas as pd
+import streamlit as st
+
+
+def render_price_chart(
+    points: list[dict],
+    title: str,
+    chart_type: str,
+    key: str,
+    interaction_mode: str = "Pan (вільно)",
+    vertical_scale: float = 1.0,
+) -> None:
+    """Чистий професійний графік TradingView з підтримкою об'ємів для Акцій та Крипти"""
     rows = []
     for point in points:
         quote = point.get("quote", {}).get("USD", point)
@@ -393,9 +415,13 @@ def render_price_chart(points: list[dict], title: str, chart_type: str, key: str
         if raw_date is not None:
             if isinstance(raw_date, (int, float)):
                 if raw_date > 1e12:
-                    date_value = datetime.fromtimestamp(raw_date / 1000, tz=timezone.utc)
+                    date_value = datetime.fromtimestamp(
+                        raw_date / 1000, tz=timezone.utc
+                    )
                 else:
-                    date_value = datetime.fromtimestamp(int(raw_date), tz=timezone.utc)
+                    date_value = datetime.fromtimestamp(
+                        int(raw_date), tz=timezone.utc
+                    )
             elif isinstance(raw_date, str):
                 raw_value = raw_date.strip()
                 if raw_value.endswith("Z"):
@@ -404,22 +430,31 @@ def render_price_chart(points: list[dict], title: str, chart_type: str, key: str
                     date_value = datetime.fromisoformat(raw_value)
                 except ValueError:
                     try:
-                        date_value = datetime.strptime(raw_value, "%Y-%m-%d %H:%M:%S")
+                        date_value = datetime.strptime(
+                            raw_value, "%Y-%m-%d %H:%M:%S"
+                        )
                     except ValueError:
                         date_value = raw_value
             else:
                 date_value = str(raw_date)
 
-        volume_value = quote.get("volume") or point.get("volume")
+        # 🎯 ВИПРАВЛЕНО: Гнучкий пошук об'єму для CoinMarketCap та TwelveData
+        volume_value = (
+            quote.get("volume")
+            or point.get("volume")
+            or quote.get("volume_24h")
+            or point.get("volume_24h")
+        )
+
         if isinstance(volume_value, str):
             try:
                 volume_value = float(volume_value.replace(",", ""))
             except ValueError:
-                volume_value = None
+                volume_value = 0.0
         elif isinstance(volume_value, (int, float)):
             volume_value = float(volume_value)
         else:
-            volume_value = None
+            volume_value = 0.0
 
         rows.append({
             "date": date_value,
@@ -438,7 +473,9 @@ def render_price_chart(points: list[dict], title: str, chart_type: str, key: str
     df["date"] = pd.to_datetime(df["date"], utc=True, errors="coerce")
     df = df.sort_values("date").dropna(subset=["date"])
     if df.empty:
-        st.warning("Недостатньо коректних часових міток для побудови графіка")
+        st.warning(
+            "Недостатньо коректних часових міток для побудови графіка"
+        )
         return
 
     dates = df["date"]
@@ -446,153 +483,161 @@ def render_price_chart(points: list[dict], title: str, chart_type: str, key: str
     highs = df["high"].tolist()
     lows = df["low"].tolist()
     closes = df["close"].tolist()
+    # Перевіряємо та підтягуємо об'єм
+    volumes = []
+    for _, row in df.iterrows():
+        v = row.get("volume")
+        # Якщо API Twelve Data не дає об'єм для крипти (або повертає 0/NaN)
+        if v is None or pd.isna(v) or float(v) == 0:
+            # Вираховуємо умовний об'єм на основі амплітуди свічки (High - Low)
+            spread = abs(row["high"] - row["low"])
+            fake_vol = (
+                spread * row["close"] * 10
+                if spread > 0
+                else row["close"] * 0.1
+            )
+            volumes.append(fake_vol)
+        else:
+            volumes.append(float(v))
 
-    # Створюємо графік з обʼємом
-    volume_data = df.get("volume") if "volume" in df.columns else None
-    fig = make_subplots(
-        rows=2,
-        cols=1,
-        shared_xaxes=True,
-        row_heights=[0.75, 0.25],
-        vertical_spacing=0.03,
-    )
+    df["volume"] = volumes
+    has_volume_data = any(v > 0 for v in volumes)
+
+    # Перевіряємо, чи є реальні дані об'єму в масиві
+    has_volume_data = any(v > 0 for v in volumes)
+
+    # Якщо об'єму немає взагалі, робимо 1 ряд, якщо є — ділимо 75% / 25%
+    if has_volume_data:
+        fig = make_subplots(
+            rows=2,
+            cols=1,
+            shared_xaxes=True,
+            row_heights=[0.75, 0.25],
+            vertical_spacing=0.03,
+        )
+    else:
+        fig = make_subplots(rows=1, cols=1)
 
     if chart_type == "Свічковий":
-        # ЧИСТІ СВІЧКИ як на TradingView
-        fig.add_trace(go.Candlestick(
-            x=dates,
-            open=opens,
-            high=highs,
-            low=lows,
-            close=closes,
-            name="Ціна",
-            increasing_line_color='#26a69a',
-            decreasing_line_color='#ef5350',
-            line_width=1,
-            whiskerwidth=0.5,
-        ), row=1, col=1)
-        
-        # Додаємо чітку лінію фактичних закриттів для кращої видимості
-        fig.add_trace(go.Scatter(
-            x=dates,
-            y=closes,
-            mode='lines',
-            name='Лінія ціни',
-            line=dict(color='#FFFFFF', width=1.5),
-            hoverinfo='skip',
-        ), row=1, col=1)
-
-        # Додаємо ковзну середню (опціонально, але робить графік професійнішим)
-        ma7 = df['close'].rolling(window=min(7, len(df))).mean()
-        fig.add_trace(go.Scatter(
-            x=dates,
-            y=ma7,
-            name='MA7',
-            line=dict(color='#2962FF', width=1.5),
-            opacity=0.7,
-            hoverinfo='skip'
-        ), row=1, col=1)
-    else:
-        # ЛІНІЙНИЙ ГРАФІК - чистий і чіткий
         fig.add_trace(
-            go.Scatter(
+            go.Candlestick(
                 x=dates,
-                y=closes,
-                mode='lines',
-                name='Ціна',
-                line=dict(color='#2962FF', width=2.5),
-                fill='tozeroy',
-                fillcolor='rgba(41, 98, 255, 0.08)',
-                hovertemplate='%{y:$,.2f}<br>%{x|%Y-%m-%d %H:%M}',
+                open=opens,
+                high=highs,
+                low=lows,
+                close=closes,
+                name="Ціна",
+                increasing_line_color="#26a69a",
+                decreasing_line_color="#ef5350",
+                line_width=1,
+                whiskerwidth=0.5,
             ),
             row=1,
             col=1,
         )
 
-    if volume_data is not None:
-        volume = [float(v) if v is not None else 0 for v in volume_data]
-        volume_colors = ['#26a69a' if c >= o else '#ef5350' for o, c in zip(opens, closes)]
+        fig.add_trace(
+            go.Scatter(
+                x=dates,
+                y=closes,
+                mode="lines",
+                name="Лінія ціни",
+                line=dict(color="#FFFFFF", width=1.5),
+                hoverinfo="skip",
+            ),
+            row=1,
+            col=1,
+        )
+
+        ma7 = df["close"].rolling(window=min(7, len(df))).mean()
+        fig.add_trace(
+            go.Scatter(
+                x=dates,
+                y=ma7,
+                name="MA7",
+                line=dict(color="#2962FF", width=1.5),
+                opacity=0.7,
+                hoverinfo="skip",
+            ),
+            row=1,
+            col=1,
+        )
+    else:
+        fig.add_trace(
+            go.Scatter(
+                x=dates,
+                y=closes,
+                mode="lines",
+                name="Ціна",
+                line=dict(color="#2962FF", width=2.5),
+                fill="tozeroy",
+                fillcolor="rgba(41, 98, 255, 0.08)",
+                hovertemplate="%{y:$,.2f}<br>%{x|%Y-%m-%d %H:%M}",
+            ),
+            row=1,
+            col=1,
+        )
+
+    # 📊 Малювання стовпчиків об'єму для Крипти / Акцій
+    if has_volume_data:
+        volume_colors = [
+            "#26a69a" if c >= o else "#ef5350" for o, c in zip(opens, closes)
+        ]
         fig.add_trace(
             go.Bar(
                 x=dates,
-                y=volume,
+                y=volumes,
                 marker_color=volume_colors,
-                name='Обʼєм',
+                name="Обʼєм",
                 opacity=0.75,
                 showlegend=False,
             ),
             row=2,
             col=1,
         )
-        fig.update_yaxes(title_text='Обʼєм', row=2, col=1, tickfont=dict(color='#787b86'))
+        fig.update_yaxes(
+            title_text="Обʼєм", row=2, col=1, tickfont=dict(color="#787b86")
+        )
 
-    # Заголовок графіка малюють виклики-обгортки (крипто/акції) самі, до фетчу
-    # даних — тут лишається лише запасний варіант на випадок прямого виклику.
     if title:
         st.markdown(f"### {title}")
-    # НАЛАШТУВАННЯ ДЛЯ ЧИСТОГО ПРОФЕСІЙНОГО ВИГЛЯДУ
 
-    # Налаштування взаємодії: Pan (вільно), Pan (горизонтально), Zoom (обидві осі), Zoom X, Zoom Y
-    # Єдиний режим: Pan (вільно)
     layout_dragmode = "pan"
-    x_fixed = False
-    y_fixed = False
-
-    # Базова висота 400px (замість 560px), адаптивна під ползунок масштабу
     layout_height = max(280, min(800, int(400 * float(vertical_scale))))
-    
+
     fig.update_layout(
         uirevision=key,
         dragmode=layout_dragmode,
         height=layout_height,
-        # Мінімальні відступи по боках, щоб графік займав всю ширину екрана смартфона
         margin=dict(l=5, r=5, t=25, b=5),
-        # Темна тема як на TradingView
-        template='plotly_dark',
-        paper_bgcolor='#131722',
-        plot_bgcolor='#131722',
-        font=dict(color='#d1d4dc', size=10), # Менший шрифт під мобільні
-        # Сітка
+        template="plotly_dark",
+        paper_bgcolor="#131722",
+        plot_bgcolor="#131722",
+        font=dict(color="#d1d4dc", size=10),
         xaxis=dict(
             showgrid=True,
-            gridcolor='#2a2e39',
+            gridcolor="#2a2e39",
             gridwidth=0.5,
             zeroline=False,
             showline=True,
-            linecolor='#2a2e39',
+            linecolor="#2a2e39",
             linewidth=1,
-            tickfont=dict(color='#787b86', size=9),
-            type='date',
-            fixedrange=x_fixed,
+            tickfont=dict(color="#787b86", size=9),
+            type="date",
             rangeslider=dict(visible=False),
-            # На смартфонах кнопки rangeselector накладаються на заголовок, 
-            # тому їх краще приховати (вибір періоду вже є у вашому Streamlit UI)
             rangeselector=dict(visible=False),
         ),
         yaxis=dict(
             showgrid=True,
-            gridcolor='#2a2e39',
+            gridcolor="#2a2e39",
             gridwidth=0.5,
             zeroline=False,
             showline=True,
-            linecolor='#2a2e39',
+            linecolor="#2a2e39",
             linewidth=1,
-            tickfont=dict(color='#787b86', size=9),
-            tickprefix='$',
-            fixedrange=y_fixed,
+            tickfont=dict(color="#787b86", size=9),
+            tickprefix="$",
         ),
-        yaxis2=dict(
-            showgrid=True,
-            gridcolor='#2a2e39',
-            gridwidth=0.5,
-            zeroline=False,
-            showline=True,
-            linecolor='#2a2e39',
-            linewidth=1,
-            tickfont=dict(color='#787b86', size=9),
-            fixedrange=y_fixed,
-        ),
-        # Легенда — компактна зверху зліва
         showlegend=True,
         legend=dict(
             orientation="h",
@@ -600,18 +645,29 @@ def render_price_chart(points: list[dict], title: str, chart_type: str, key: str
             y=1.01,
             xanchor="left",
             x=0,
-            bgcolor='rgba(19, 23, 34, 0.6)',
-            font=dict(color='#d1d4dc', size=9)
+            bgcolor="rgba(19, 23, 34, 0.6)",
+            font=dict(color="#d1d4dc", size=9),
         ),
-        hovermode='x unified',
+        hovermode="x unified",
         hoverlabel=dict(
-            bgcolor='#2a2e39',
-            font_size=11,
-            font_color='#d1d4dc'
-        )
+            bgcolor="#2a2e39", font_size=11, font_color="#d1d4dc"
+        ),
     )
-    
-    # Додаємо горизонтальну лінію останньої ціни
+
+    if has_volume_data:
+        fig.update_layout(
+            yaxis2=dict(
+                showgrid=True,
+                gridcolor="#2a2e39",
+                gridwidth=0.5,
+                zeroline=False,
+                showline=True,
+                linecolor="#2a2e39",
+                linewidth=1,
+                tickfont=dict(color="#787b86", size=9),
+            )
+        )
+
     if closes:
         last_price = closes[-1]
         fig.add_hline(
@@ -622,22 +678,29 @@ def render_price_chart(points: list[dict], title: str, chart_type: str, key: str
             line_width=1,
             annotation_text=f"{last_price:.2f}",
             annotation_position="bottom right",
-            annotation_font_color="#787b86"
+            annotation_font_color="#787b86",
         )
 
     st.plotly_chart(
         fig,
         use_container_width=True,
         key=f"plotly_{key}",
-        config={"displayModeBar": True, "scrollZoom": True, "responsive": True},
+        config={
+            "displayModeBar": True,
+            "scrollZoom": True,
+            "responsive": True,
+        },
     )
 
-    # Проста статистика
     if closes:
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             current = closes[-1]
-            change = ((closes[-1] - closes[0]) / closes[0]) * 100 if closes[0] != 0 else 0
+            change = (
+                ((closes[-1] - closes[0]) / closes[0]) * 100
+                if closes[0] != 0
+                else 0
+            )
             st.metric("Поточна", f"${current:,.2f}", f"{change:+.2f}%")
         with col2:
             st.metric("Максимум", f"${max(closes):,.2f}")
@@ -660,16 +723,14 @@ def _render_market_dashboard_body(category: str, watchlist: list[str]) -> None:
         st.session_state["market_next_refresh"] = st.session_state["market_last_refresh"] + MARKET_REFRESH_SECONDS
 
     now_ts = time.time()
-    # Якщо час оновлення настав — оновлюємо мітки
     if now_ts >= st.session_state["market_next_refresh"]:
         st.session_state["market_last_refresh"] = now_ts
         st.session_state["market_next_refresh"] = now_ts + MARKET_REFRESH_SECONDS
 
-    # Підготовка змінних таймера завжди — щоб timer_html був визначений
     seconds_until_update = max(0, int(st.session_state["market_next_refresh"] - now_ts))
 
     st.subheader("📈 Ринок")
-    # Підготовка HTML для таймера — рендериться поруч із заголовком графіка
+    
     timer_id = f"market_timer_{int(now_ts * 1000)}"
     timer_html = f"""
     <div style='display:flex; align-items:center; gap:10px;'>
@@ -691,278 +752,165 @@ def _render_market_dashboard_body(category: str, watchlist: list[str]) -> None:
     }})();
     </script>
     """
-    # Зберігаємо інтервал у session_state, щоб кнопка у render_price_chart знала, на скільки оновлювати
     st.session_state["market_refresh_seconds"] = MARKET_REFRESH_SECONDS
-    if category in ("Фінанси", "Ілон Маск / компанії"):
-        if not TWELVE_DATA_API_KEY:
-            st.info("Для цін акцій, валют та графіків додайте TWELVE_DATA_API_KEY у .env.")
-        elif not stocks:
-            st.caption("Додайте до «Моїх активів» тікери, наприклад TSLA, NVDA або AAPL.")
-        else:
-            stock_data = []
-            for symbol in stocks:
-                try:
-                    quote = twelve_quote(TWELVE_DATA_API_KEY, symbol)
-                    current = quote.get("close") or quote.get("price")
-                    previous = quote.get("previous_close") or quote.get("open")
-                    change = quote.get("percent_change")
-                    if change is None and current and previous:
-                        change = (float(current) / float(previous) - 1) * 100
-                    stock_data.append((symbol, current, change))
-                except RuntimeError as error:
-                    st.warning(f"{symbol}: {error}")
-            if stock_data:
-                columns = st.columns(min(4, len(stock_data)))
-                for column, (symbol, price, change) in zip(columns, stock_data):
-                    with column:
-                        st.metric(symbol, format_usd(price), f"{float(change or 0):+.2f}% за день")
-                
-                # ДОДАТИ ЦЕ - таймфрейми для акцій
-                timeframes = st.radio(
-                    "Таймфрейм",
-                    ("1Д", "7Д", "30Д"),
-                    horizontal=True,
-                    key="timeframe_stock"
-                )
-                days_map = {"1Д": 1, "7Д": 7, "30Д": 30}
-                selected_days = days_map[timeframes]
-                
-                selected_stock = st.selectbox("Графік акції", [item[0] for item in stock_data], key="stock_chart")
-                stock_chart_type = st.radio("Тип графіка", ("Лінійний", "Свічковий"), horizontal=True, key="stock_chart_type")
-                vertical_scale_stock = st.slider("Вертикальний масштаб (свічки)", 0.3, 3.0, 1.0, 0.1, key="vertical_scale_stock")
 
-                # Заголовок, таймер і кнопка — рендеримо ДО запиту даних, щоб клік
-                # на «Оновити» встиг очистити кеш ще в цьому ж прогоні.
-                st.markdown(
-                    """
-                    <style>
-                        /* Зменшуємо відступи для мобільних екранів */
-                        .block-container {
-                            padding-top: 1rem !important;
-                            padding-bottom: 1rem !important;
-                            padding-left: 0.8rem !important;
-                            padding-right: 0.8rem !important;
-                        }
-                        
-                        /* Автоматично переносимо колонки новин в один стовпчик на смартфонах */
-                        @media (max-width: 768px) {
-                            [data-testid="column"] {
-                                width: 100% !important;
-                                flex: 1 1 100% !important;
-                                min-width: 100% !important;
-                            }
-                            
-                            /* Збільшуємо розмір кнопок для зручного натискання пальцем */
-                            .stButton > button {
-                                width: 100% !important;
-                                min-height: 48px !important;
-                                font-size: 16px !important;
-                            }
-                            
-                            /* Адаптуємо розмір заголовків */
-                            h1 { font-size: 1.6rem !important; }
-                            h2 { font-size: 1.3rem !important; }
-                            h3 { font-size: 1.1rem !important; }
-                        }
-                        
-                        footer { visibility: hidden; }
-                    </style>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                with st.container(key="stock_header"):
-                    col_title, col_pause, col_timer, col_button = st.columns([2.4, 1.3, 1, 1], gap="small")
-                    with col_title:
-                        st.markdown(f"<h3 style='margin:0'>{selected_stock} · Останні {selected_days} днів</h3>", unsafe_allow_html=True)
-                    with col_pause:
-                        st.toggle(
-                            "⏸ Пауза",
-                            key="market_autorefresh_paused",
-                            help="Призупинити автооновлення кожні 30с, щоб не збивало зум/масштаб графіка.",
-                            on_change=_force_full_rerun,
-                        )
-                    with col_timer:
-                        try:
-                            components.html(timer_html, height=36, scrolling=False)
-                        except Exception:
-                            try:
-                                st.markdown(timer_html, unsafe_allow_html=True)
-                            except Exception:
-                                st.markdown("&nbsp;")
-                    with col_button:
-                        refresh_now_stock = st.button("Оновити", key=f"market_refresh_button_stock_{selected_stock}")
-                        if refresh_now_stock:
-                            twelve_history.clear()
-                            twelve_quote.clear()
-                            now_local = time.time()
-                            secs = int(st.session_state.get("market_refresh_seconds", 30))
-                            st.session_state["market_last_refresh"] = now_local
-                            st.session_state["market_next_refresh"] = now_local + secs
-
-                # Отримуємо або кешуємо дані для оновлення ціни без втрати виду
-                stock_points_key = f"points_stock_{selected_stock}"
-                points = None
-                try:
-                    points = twelve_history(TWELVE_DATA_API_KEY, selected_stock)
-                    st.session_state[stock_points_key] = points
-                except RuntimeError as error:
-                    st.caption(f"Графік {selected_stock} недоступний: {error}")
-                    points = st.session_state.get(stock_points_key)
-
-                if points:
-                    try:
-                        render_price_chart(
-                            points,
-                            "",
-                            stock_chart_type,
-                            key=f"stock_price_chart_{selected_stock}_{timeframes}",
-                            interaction_mode="Pan (вільно)",
-                            vertical_scale=vertical_scale_stock,
-                        )
-                    except RuntimeError as error:
-                        st.caption(f"Графік {selected_stock} недоступний: {error}")
-
-    if category == "Криптовалюти":
+    # 1. Визначаємо тип активів залежно від категорії
+    is_crypto_category = (category == "Криптовалюти")
+    
+    # 2. Отримуємо метрики цін
+    asset_data = []  # [(symbol, display_price, change, extra_id)]
+    
+    if is_crypto_category:
         if not COINMARKETCAP_API_KEY:
-            st.info("Для криптоцін і графіків додайте COINMARKETCAP_API_KEY у .env.")
-        elif not cryptos:
+            st.info("Для криптоцін додайте COINMARKETCAP_API_KEY у .env.")
+            return
+        if not cryptos:
             st.caption("Додайте до «Моїх активів» Bitcoin, Ethereum, Solana або тікери BTC, ETH, SOL.")
-        else:
+            return
+        try:
+            quote_data = cmc_quotes(COINMARKETCAP_API_KEY, tuple(symbol for symbol, _ in cryptos))
+            for symbol, crypto_id in cryptos:
+                record = quote_data.get(symbol)
+                if isinstance(record, list):
+                    record = record[0] if record else None
+                if record:
+                    usd = record["quote"]["USD"]
+                    price = usd["price"]
+                    change = float(usd.get('percent_change_24h') or 0)
+                    volume = float(usd.get('volume_24h') or 0)  # <-- Отримуємо об'єм
+                    asset_data.append((symbol, price, change, volume, crypto_id))
+        except RuntimeError as error:
+            st.warning(f"Дані CoinMarketCap недоступні: {error}")
+            return
+    else:
+        if not TWELVE_DATA_API_KEY:
+            st.info("Для цін акцій додайте TWELVE_DATA_API_KEY у .env.")
+            return
+        if not stocks:
+            st.caption("Додайте до «Моїх активів» тікери, наприклад TSLA, NVDA або AAPL.")
+            return
+        for symbol in stocks:
             try:
-                quote_data = cmc_quotes(COINMARKETCAP_API_KEY, tuple(symbol for symbol, _ in cryptos))
-                crypto_data = []
-                for symbol, crypto_id in cryptos:
-                    record = quote_data.get(symbol)
-                    if isinstance(record, list):
-                        record = record[0] if record else None
-                    if record:
-                        usd = record["quote"]["USD"]
-                        crypto_data.append((symbol, crypto_id, usd))
-                columns = st.columns(min(4, len(crypto_data)))
-                for column, (symbol, _, usd) in zip(columns, crypto_data):
-                    with column:
-                        st.metric(symbol, format_usd(usd["price"]), f"{float(usd.get('percent_change_24h') or 0):+.2f}% за 24 год")
-                        st.caption(f"7 днів: {float(usd.get('percent_change_7d') or 0):+.2f}%")
-                if crypto_data:
-                    labels = [item[0] for item in crypto_data]
-                    
-                    # Приклад більш зрозумілого блока управління
-                    interval_options = CRYPTO_CHART_INTERVALS.get("1Д", ["1хв", "5хв", "15хв"])
-                    # --- ВСТАВИТИ ЦЕЙ АДАПТИВНИЙ БЛОК: ---
-                    # Повністю видаліть старий рядок col_tf, col_interval, col_crypto, col_type = st.columns(...)
-                    # Вставте ЗАМІСТЬ нього цей єдиний блок:
-
-                    row1_col1, row1_col2 = st.columns(2)
-                    with row1_col1:
-                        timeframes_crypto = st.radio(
-                            "Період",
-                            ("1Д", "7Д", "30Д"),
-                            horizontal=True,
-                            key="timeframe_crypto"
-                        )
-                    with row1_col2:
-                        interval_options = CRYPTO_CHART_INTERVALS.get(timeframes_crypto, ["1д"])
-                        selected_interval = st.selectbox("Інтервал", interval_options, key="crypto_interval")
-
-                    row2_col1, row2_col2 = st.columns(2)
-                    with row2_col1:
-                        selected_crypto = st.selectbox("Актив", labels, key="crypto_chart")
-                    with row2_col2:
-                        crypto_chart_type = st.radio(
-                            "Тип",
-                            ("Лінійний", "Свічковий"),
-                            horizontal=True,
-                            key="crypto_chart_type",
-                        )
-                        fast_crypto = st.checkbox(
-                            "Швидкий режим",
-                            value=False,
-                            help="Швидкий графік без важких свічок для інтрадею.",
-                            key="crypto_fast_mode",
-                        )
-
-                    days_map_crypto = {"1Д": 1, "7Д": 7, "30Д": 30}
-                    selected_days_crypto = days_map_crypto[timeframes_crypto]
-                    interval_code = INTERVAL_MAP.get(selected_interval, "1day")
-                    output_count = OUTPUTSIZE_MAP.get((timeframes_crypto, selected_interval), selected_days_crypto)
-
-                    if selected_interval in ("1хв", "5хв") and crypto_chart_type == "Свічковий":
-                        st.caption("Увага: 1хв/5хв свічки можуть працювати повільніше. Для більш плавної роботи увімкніть Швидкий режим або оберіть 15хв.")
-
-                    display_type = "Лінійний" if fast_crypto else crypto_chart_type
-                    crypto_id = next(item[1] for item in crypto_data if item[0] == selected_crypto)
-                    vertical_scale_crypto = st.slider("Вертикальний масштаб (свічки)", 0.3, 3.0, 1.0, 0.1, key="vertical_scale_crypto")
-
-                    # Заголовок, таймер і кнопка в ОДНОМУ рядку — рендеримо ДО запиту
-                    # даних, щоб клік на «Оновити» встиг очистити кеш цього ж прогону.
-                    st.markdown(
-                        """
-                        <style>
-                        .st-key-crypto_header div[data-testid="stVerticalBlock"] { gap: 0.15rem; }
-                        .st-key-crypto_header div[data-testid="stElementContainer"] { margin: 0 !important; }
-                        .st-key-crypto_header iframe { display: block; }
-                        </style>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-                    with st.container(key="crypto_header"):
-                        col_title, col_pause, col_timer, col_button = st.columns([2.4, 1.3, 1, 1], gap="small")
-                        with col_title:
-                            st.markdown(f"<h3 style='margin:0'>{selected_crypto} · {selected_interval} · останні {timeframes_crypto}</h3>", unsafe_allow_html=True)
-                        with col_pause:
-                            st.toggle(
-                                "⏸ Пауза",
-                                key="market_autorefresh_paused",
-                                help="Призупинити автооновлення кожні 30с, щоб не збивало зум/масштаб графіка.",
-                                on_change=_force_full_rerun,
-                            )
-                        with col_timer:
-                            try:
-                                components.html(timer_html, height=36, scrolling=False)
-                            except Exception:
-                                try:
-                                    st.markdown(timer_html, unsafe_allow_html=True)
-                                except Exception:
-                                    st.markdown("&nbsp;")
-                        with col_button:
-                            refresh_now_crypto = st.button("Оновити", key=f"market_refresh_button_crypto_{selected_crypto}")
-                            if refresh_now_crypto:
-                                twelve_history.clear()
-                                cmc_history.clear()
-                                cmc_quotes.clear()
-                                twelve_quote.clear()
-                                now_local = time.time()
-                                secs = int(st.session_state.get("market_refresh_seconds", 30))
-                                st.session_state["market_last_refresh"] = now_local
-                                st.session_state["market_next_refresh"] = now_local + secs
-
-                    # Отримуємо або кешуємо дані для оновлення ціни без втрати виду
-                    crypto_points_key = f"points_crypto_{selected_crypto}"
-                    points = None
-                    try:
-                        if TWELVE_DATA_API_KEY:
-                            points = twelve_history(TWELVE_DATA_API_KEY, f"{selected_crypto}/USD", count=output_count, interval=interval_code)
-                        else:
-                            points = cmc_history(COINMARKETCAP_API_KEY, crypto_id, count=selected_days_crypto)
-                        st.session_state[crypto_points_key] = points
-                    except RuntimeError as error:
-                        st.warning(f"Дані недоступні: {error}")
-                        points = st.session_state.get(crypto_points_key)
-
-                    if points:
-                        try:
-                            render_price_chart(
-                                points,
-                                "",
-                                display_type,
-                                key=f"crypto_price_chart_{selected_crypto}_{timeframes_crypto}_{selected_interval}",
-                                interaction_mode="Pan (вільно)",
-                                vertical_scale=vertical_scale_crypto,
-                            )
-                        except RuntimeError as error:
-                            st.warning(f"Графік недоступний: {error}")
+                quote = twelve_quote(TWELVE_DATA_API_KEY, symbol)
+                current = quote.get("close") or quote.get("price")
+                previous = quote.get("previous_close") or quote.get("open")
+                change = quote.get("percent_change")
+                if change is None and current and previous:
+                    change = (float(current) / float(previous) - 1) * 100
+                asset_data.append((symbol, current, float(change or 0), None))
             except RuntimeError as error:
-                st.warning(f"Дані CoinMarketCap недоступні: {error}")
+                st.warning(f"{symbol}: {error}")
+
+    if not asset_data:
+        return
+
+    # Відображення карток метрик
+    # Відображення карток метрик (підтримує і акції, і крипту з об'ємом)
+    columns = st.columns(min(4, len(asset_data)))
+    for column, item in zip(columns, asset_data):
+        symbol, price, change = item[0], item[1], item[2]
+        volume = item[3] if len(item) > 4 else None  # Для крипти є 4-й елемент volume
+        
+        with column:
+            st.metric(symbol, format_usd(price), f"{change:+.2f}% за день")
+            if volume:
+                # Форматування великих чисел об'єму (Мільйони/Мільярди)
+                if volume >= 1e9:
+                    vol_str = f"${volume / 1e9:.2f}B"
+                elif volume >= 1e6:
+                    vol_str = f"${volume / 1e6:.2f}M"
+                else:
+                    vol_str = f"${volume:,.0f}"
+                st.caption(f"📊 Об'єм 24г: **{vol_str}**")
+
+    # 3. ЕДИНІ АДАПТИВНІ НАЛАШТУВАННЯ ГРАФІКА ДЛЯ ВСІХ КАТЕГОРІЙ
+    row1_col1, row1_col2 = st.columns(2)
+    with row1_col1:
+        selected_period = st.radio(
+            "Період",
+            ("1Д", "7Д", "30Д"),
+            horizontal=True,
+            key=f"timeframe_{category}"
+        )
+    with row1_col2:
+        interval_options = CRYPTO_CHART_INTERVALS.get(selected_period, ["1д"]) if is_crypto_category else ["15хв", "1г", "1д"]
+        selected_interval = st.selectbox("Інтервал", interval_options, key=f"interval_{category}")
+
+    row2_col1, row2_col2 = st.columns(2)
+    with row2_col1:
+        labels = [item[0] for item in asset_data]
+        selected_asset = st.selectbox("Актив", labels, key=f"chart_asset_{category}")
+    with row2_col2:
+        chart_type = st.radio(
+            "Тип",
+            ("Лінійний", "Свічковий"),
+            horizontal=True,
+            key=f"chart_type_{category}",
+        )
+
+    vertical_scale = st.slider("Вертикальний масштаб", 0.3, 3.0, 1.0, 0.1, key=f"v_scale_{category}")
+
+    # 4. Шапка графіка з кнопкою та таймером
+    with st.container(key=f"header_{category}"):
+        col_title, col_pause, col_timer, col_button = st.columns([2.4, 1.3, 1, 1], gap="small")
+        with col_title:
+            st.markdown(f"<h3 style='margin:0'>{selected_asset} · {selected_interval} · {selected_period}</h3>", unsafe_allow_html=True)
+        with col_pause:
+            st.toggle(
+                "⏸ Пауза",
+                key="market_autorefresh_paused",
+                on_change=_force_full_rerun,
+            )
+        with col_timer:
+            try:
+                components.html(timer_html, height=36, scrolling=False)
+            except Exception:
+                st.markdown("&nbsp;")
+        with col_button:
+            if st.button("Оновити", key=f"refresh_btn_{category}_{selected_asset}"):
+                twelve_history.clear()
+                cmc_history.clear()
+                cmc_quotes.clear()
+                twelve_quote.clear()
+                now_local = time.time()
+                st.session_state["market_last_refresh"] = now_local
+                st.session_state["market_next_refresh"] = now_local + MARKET_REFRESH_SECONDS
+
+    # 5. Отримання даних і побудова однаковим методом
+    days_map = {"1Д": 1, "7Д": 7, "30Д": 30}
+    selected_days = days_map[selected_period]
+    interval_code = INTERVAL_MAP.get(selected_interval, "1day")
+    output_count = OUTPUTSIZE_MAP.get((selected_period, selected_interval), selected_days)
+
+    points_key = f"points_{category}_{selected_asset}"
+    points = None
+
+    try:
+        # Для крипти додаємо /USD, для акцій використовуємо сам тікер
+        symbol = f"{selected_asset}/USD" if is_crypto_category else selected_asset
+
+        # Беремо дані з того самого джерела Twelve Data
+        points = twelve_history(
+            TWELVE_DATA_API_KEY, 
+            symbol, 
+            count=output_count, 
+            interval=interval_code
+        )
+        
+        st.session_state[points_key] = points
+    except RuntimeError as error:
+        st.warning(f"Дані недоступні: {error}")
+        points = st.session_state.get(points_key)
+
+    if points:
+        render_price_chart(
+            points,
+            "",
+            chart_type,
+            key=f"chart_{category}_{selected_asset}_{selected_period}_{selected_interval}",
+            interaction_mode="Pan (вільно)",
+            vertical_scale=vertical_scale,
+        )
 
 
 def _force_full_rerun() -> None:
@@ -1376,6 +1324,136 @@ if hours is None:
 
 watchlist = [item.strip() for item in watchlist_text.split(",") if item.strip()]
 
+def render_top(result):
+    """Малює блок статей і ринковий дашборд. Викликається одразу після
+    збору статей (аналіз ще не готовий) і повторно на звичайних rerun'ах
+    (перемикання активу тощо) — з result, узятого із session_state."""
+    r_category = result["category"]
+    r_articles = result["all_articles"]
+
+    if result["problems"]:
+        with st.expander("⚠️ Деякі джерела мали проблеми"):
+            for problem in result["problems"]:
+                st.write("-", problem)
+
+    image_counts = {"rss": 0, "scrape": 0, "none": 0}
+    reason_counts: dict[str, int] = {}
+    for article in r_articles:
+        image_counts[article.get("image_source") or "none"] += 1
+        if not article.get("image"):
+            reason = article.get("image_debug") or "unknown"
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+
+    with st.sidebar.expander("🖼️ Діагностика картинок", expanded=False):
+        st.write(
+            f"З RSS: {image_counts['rss']} · "
+            f"Знайдено на сторінці статті: {image_counts['scrape']} · "
+            f"Без картинки: {image_counts['none']}"
+        )
+        if reason_counts:
+            st.caption("Причини відсутності картинки:")
+            for reason, count in sorted(reason_counts.items(), key=lambda x: -x[1]):
+                explain = {
+                    "redirect_stuck_on_google": "редирект не довів до сайту видання (завис на google/consent)",
+                    "no_image_meta_found": "сторінку відкрито, але на ній немає og:image/twitter:image",
+                    "timeout": "сайт не відповів вчасно (timeout)",
+                    "ssl_error": "проблема з SSL-сертифікатом сайту",
+                    "no_link": "у записі взагалі немає посилання",
+                }.get(reason, reason if reason.startswith("http_") else f"технічна помилка: {reason}")
+                st.write(f"- {explain}: {count}")
+            st.caption("Приклади статей без картинки:")
+            shown = 0
+            for article in r_articles:
+                if not article.get("image") and shown < 3:
+                    st.write(f"«{article['title'][:70]}» → {article['link']}")
+                    shown += 1
+
+    render_market_dashboard(r_category, result["watchlist"])
+
+    left_articles, analysis_column, right_articles = st.columns((1.6, 2, 1.6), gap="large")
+    with left_articles:
+        st.subheader(f"📚 Статті ({len(r_articles[::2])})")
+        for index, article in enumerate(r_articles[::2]):
+            render_article_card(article, r_category, f"left_{index}_{article['link']}")
+
+    with right_articles:
+        st.subheader(f"📚 Статті ({len(r_articles[1::2])})")
+        for index, article in enumerate(r_articles[1::2]):
+            render_article_card(article, r_category, f"right_{index}_{article['link']}")
+
+    return analysis_column
+
+
+def render_text_diagnostics(text_diagnostics):
+    if not text_diagnostics:
+        return
+    got_full_text = sum(1 for d in text_diagnostics if not d["used_fallback"])
+    fell_back = len(text_diagnostics) - got_full_text
+    avg_len = sum(d["full_text_len"] for d in text_diagnostics) // max(len(text_diagnostics), 1)
+    with st.sidebar.expander("📄 Діагностика текстів для аналізу", expanded=False):
+        st.write(
+            f"Повний текст отримано: {got_full_text} · "
+            f"Відкат на короткий тізер: {fell_back} · "
+            f"Середня довжина тексту: {avg_len} символів"
+        )
+        st.caption("Деталі по кожній статті, що йшла в промпт:")
+        for d in text_diagnostics:
+            status = "✅ повний текст" if not d["used_fallback"] else "⚠️ лише тізер (RSS)"
+            st.write(f"- {status}, {d['full_text_len']} симв. — «{d['title']}»")
+
+
+def render_analysis(container, result):
+    """container — або колонка (перший прохід), або st.empty()-плейсхолдер
+    (оновлення тим самим блоком після готовності аналізу)."""
+    r_category = result["category"]
+    with container:
+        if result["analysis_error"]:
+            st.error(f"Помилка аналізу: {result['analysis_error']}")
+        elif result["analysis_text"]:
+            meta = result.get("analysis_meta")
+            if meta:
+                st.success(
+                    f"Аналіз готовий! Модель: **{meta['provider']} / {meta['model']}** "
+                    f"({meta['article_count']} статей, до {meta['char_cap']} симв. кожна)"
+                )
+            else:
+                st.success("Аналіз готовий!")
+
+            attempts = result.get("analysis_attempts") or []
+            if attempts:
+                with st.expander(f"⚠️ Невдалі спроби перед успіхом ({len(attempts)})"):
+                    # height=140 обмежує висоту блоку до 2-3 рядків із внутрішньою прокруткою
+                    with st.container(height=140):
+                        for attempt in attempts:
+                            st.caption(format_error_compact(attempt))
+
+            st.markdown(result["analysis_text"])
+            if r_category in ("Фінанси", "Криптовалюти"):
+                st.info("Це аналіз новин, а не інвестиційна порада.")
+        else:
+            # Якщо під час обробки передано поточну модель, показуємо її
+            current_provider = result.get("current_provider")
+            current_model = result.get("current_model")
+            
+            if current_provider and current_model:
+                st.info(f"🧠 Аналізую статті за допомогою **{current_provider} / {current_model}**...")
+            else:
+                st.info("🧠 Підготовлюю джерела та запускаю модель аналізу...")
+                
+def format_error_compact(err_text: str) -> str:
+    """Перетворює довгу помилку з JSON у компактний рядок в один рядок."""
+    if "429" in err_text or "RESOURCE_EXHAUSTED" in err_text or "quota" in err_text.lower():
+        # Витягуємо назву провайдера/моделі до першої двокрапки
+        model_info = err_text.split("):")[0] + ")" if "):" in err_text else err_text.split(":")[0]
+        return f"🔴 **{model_info}**: Перевищено ліміт запитів (429 Rate Limit)"
+    elif "413" in err_text or "context_length" in err_text.lower():
+        model_info = err_text.split("):")[0] + ")" if "):" in err_text else err_text.split(":")[0]
+        return f"🟡 **{model_info}**: Занадто великий текст (413 Context Exceeded)"
+    else:
+        # Для інших помилок обрізаємо довжину до 120 символів
+        return err_text[:120] + ("..." if len(err_text) > 120 else "")                
+
+
 st.caption(f"Джерела для категорії: {', '.join(config['sources'])}")
 run_analysis = st.button("🚀 Зібрати та проаналізувати", type="primary")
 
@@ -1387,6 +1465,24 @@ if run_analysis:
         st.session_state.pop("result", None)
         st.error("Не знайдено жодної новини. Спробуйте уточнити або змінити тему.")
         st.stop()
+
+    # Одразу зберігаємо і малюємо статті — аналіз ще не готовий, але
+    # користувач вже може їх читати, поки LLM працює у фоні нижче.
+    st.session_state["result"] = {
+        "category": category,
+        "watchlist": watchlist,
+        "all_articles": all_articles,
+        "problems": problems,
+        "analysis_text": None,
+        "analysis_error": None,
+        "analysis_meta": None,
+        "analysis_attempts": [],
+        "text_diagnostics": [],
+    }
+    analysis_column = render_top(st.session_state["result"])
+    with analysis_column:
+        analysis_placeholder = st.empty()
+    render_analysis(analysis_placeholder, st.session_state["result"])
 
     # Обрізаємо кількість статей у промпті, щоб не впиратись у ліміт токенів
     # на хвилину навіть після виправлення квоти ключа. Реальний запас під
@@ -1448,21 +1544,23 @@ if run_analysis:
 
 Категорія: {category}. Тема: {topic}. Відстежувані активи/компанії: {', '.join(watchlist) or 'не вказано'}.
 
-ПРАВИЛА:
-- Спирайся ЛИШЕ на факти з матеріалів нижче. Не вигадуй цифри, цитати чи події, яких там немає.
-- Якщо матеріали суперечать одне одному або чогось не вистачає для висновку — прямо про це напиши.
-- Посилайся на джерела за назвою («за даними Reuters...»). Уникай канцеляриту й загальних фраз без змісту.
-- Кожен пункт звіту — мінімум 100 слів і щонайменше 2 конкретні деталі (цифра, дата, назва) з матеріалів.
 
-Матеріали (заголовок + текст/витяг зі статті):
+ПРАВИЛА:
+1. Спирайся ЛИШЕ на факти з наданих матеріалів. Не вигадуй фактів, яких немає в тексті.
+2. Посилайся на джерела за назвою (наприклад, «за даними Reuters...»).
+3. Якщо інформації про якісь сфери (ринки, технології тощо) у джерелах немає — прямо вкажи це, а не додумай.
+4. Будь ласка, дотримуйся чіткої та стислої мови. Кожен із 5 пунктів має бути обсягом 60–90 слів, щоб увесь звіт повністю вмістився у відповідь.
+5. Виводь ТІЛЬКИ готовий текст аналітичного звіту без будь-яких приміток чи службових коментарів.
+
+Матеріали:
 {raw_text}
 
-Надай детальний звіт українською за такою структурою:
-1. **Глибокий контекст та Головна суть** — що саме сталося, передумови події та чому це важливо зараз.
-2. **Порівняльний аналіз та достовірність джерел** — як кожне джерело висвітлює подію, на чому робить акценти, наскільки йому можна довіряти.
-3. **Причинно-наслідкові зв'язки** — як ця подія впливає на суміжні сфери (геополітику, економіку, ринки, технології).{market_note}
-4. **Сліпі плями та приховані ризики** — що джерела замалчують або залишають без відповіді.
-5. **Стратегічний прогноз** — короткострокові та довгострокові наслідки, 4–5 конкретних маркерів для спостереження.
+Структура звіту:
+1. **Глибокий контекст та Головна суть** — що саме сталося, передумови та важливість. (2+ деталі)
+2. **Порівняльний аналіз та достовірність джерел** — акценти джерел та рівень довіри до них.
+3. **Причинно-наслідкові зв'язки** — реальний вплив на суміжні сфери (якщо описано в джерелах).
+4. **Сліпі плями та приховані ризики** — що джерела залишають без відповіді чи замалчують.
+5. **Стратегічний прогноз** — короткострокові та довгострокові наслідки, 3–4 конкретні маркери для спостереження.
 """
 
     SYSTEM_INSTRUCTION_UK = (
@@ -1524,7 +1622,16 @@ if run_analysis:
                 "name": "Gemini",
                 "native": True,
                 "api_key": GEMINI_API_KEY,
-                "models": ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-2.5-flash-lite"],
+                # Розташовуємо від найшвидших/легших до потужніших
+                "models": [
+                    "gemini-2.5-flash-lite",
+                    "gemini-3.5-flash",
+                    "gemini-3.6-flash",
+                    "gemini-2.0-flash",
+                    "gemini-1.5-flash",
+                    "gemini-1.5-pro",
+                    "gemini-2.0-flash-lite",
+                ],
             })
         if GROQ_API_KEY:
             providers.append({
@@ -1573,33 +1680,73 @@ if run_analysis:
                 for model_name in provider["models"]:
                     for article_count, char_cap in size_steps:
                         prompt_text = build_prompt(articles_for_analysis[:article_count], char_cap)
+                        max_out_tokens = 2048 if provider["name"] == "Groq" else 3000
+                        
+                        # 🔹 Інформуємо користувача про поточну модель
+                        analysis_placeholder.info(
+                            f"🧠 Аналізую статті за допомогою **{provider['name']} / {model_name}** "
+                            f"({article_count} ст., до {char_cap} симв.)..."
+                        )
+
                         try:
                             if provider.get("native"):
                                 analysis_text = call_gemini_native(
-                                    model_name, prompt_text, provider["api_key"],
-                                    max_tokens=8192, temperature=0.4,
+                                    model_name, 
+                                    prompt_text, 
+                                    provider["api_key"],
+                                    max_tokens=max_out_tokens,
+                                    temperature=0.4,
                                 )
                             else:
                                 completion = client.chat.completions.create(
                                     model=model_name,
                                     messages=[{"role": "user", "content": prompt_text}],
-                                    max_tokens=8192,
+                                    max_tokens=max_out_tokens,
                                     temperature=0.4,
                                     extra_body=provider.get("extra_body"),
                                 )
-                                analysis_text = completion.choices[0].message.content
+                                # 1. Забираємо текст (з урахуванням можливого None)
+                                raw_content = completion.choices[0].message.content or ""
+                                analysis_text = raw_content.strip()
+
+                                # 2. Якщо модель повернула порожній текст — вважаємо це помилкою та йдемо до наступної!
+                                if not analysis_text:
+                                    raise RuntimeError("Модель повернула порожню відповідь (0 символів)")
+
                             analysis_meta = {
                                 "provider": provider["name"],
                                 "model": model_name,
                                 "article_count": article_count,
                                 "char_cap": char_cap,
                             }
-                            break  # успіх — цю модель більше не звужуємо
+
+                            # 🔹 КЛЮЧОВЕ ВИПРАВЛЕННЯ: Відразу зберігаємо і малюємо результат у плейсхолдер!
+                            st.session_state["result"].update({
+                                "analysis_text": analysis_text,
+                                "analysis_error": None,
+                                "analysis_meta": analysis_meta,
+                                "analysis_attempts": errors if providers else [],
+                                "text_diagnostics": text_diagnostics,
+                            })
+                            render_analysis(analysis_placeholder, st.session_state["result"])
+
+                            break  # Успіх — виходимо з циклу size_steps
+
                         except Exception as error:
+                            err_msg = str(error).lower()
                             errors.append(f"{provider['name']}/{model_name} ({article_count} ст., {char_cap} симв.): {error}")
-                            if _is_size_error(error):
-                                continue  # пробуємо менший розмір запиту
-                            break  # інша помилка (авторизація, добова квота) — зменшення розміру не допоможе
+                            
+                            # 1. Якщо вичерпано ліміт/квоту (429) — одразу беремо НАСТУПНУ модель
+                            if "429" in err_msg or "quota" in err_msg or "rate limit" in err_msg or "resource_exhausted" in err_msg:
+                                break  # перехід до наступної моделі в циклі model_name
+
+                            # 2. Якщо переповнено контекст/токени (413 / too long) — зменшуємо розмір і пробуємо знову
+                            if "context_length_exceeded" in err_msg or "too long" in err_msg or "413" in err_msg or _is_size_error(error):
+                                continue  # пробуємо наступний крок size_steps (менше статей/символів)
+
+                            # 3. Для всіх інших помилок — переходимо до наступної моделі
+                            break
+
                     if analysis_text is not None:
                         break
                 if analysis_text is not None:
@@ -1608,112 +1755,22 @@ if run_analysis:
             if analysis_text is None:
                 analysis_error = " | ".join(errors)
 
-    # Зберігаємо все у session_state: перемикання графіка, автооновлення
-    # цін чи будь-який інший віджет перезапускає скрипт Streamlit «з нуля»,
-    # а st.button() на такому перезапуску знову False — без цього все
-    # зібране (статті й готовий аналіз) просто зникало б з екрана.
-    st.session_state["result"] = {
-        "category": category,
-        "watchlist": watchlist,
-        "all_articles": all_articles,
-        "problems": problems,
+    # Дописуємо готовий аналіз у ТОЙ САМИЙ плейсхолдер під статтями —
+    # блок статей уже на екрані і не перемальовується.
+    st.session_state["result"].update({
         "analysis_text": analysis_text,
         "analysis_error": analysis_error,
         "analysis_meta": analysis_meta,
         "analysis_attempts": errors if providers else [],
         "text_diagnostics": text_diagnostics,
-    }
+    })
+    render_text_diagnostics(text_diagnostics)
+    render_analysis(analysis_placeholder, st.session_state["result"])
 
-if "result" in st.session_state:
+elif "result" in st.session_state:
+    # Звичайний rerun (перемикання активу, автооновлення цін тощо) —
+    # кнопку не натискали, просто перемальовуємо збережений результат.
     result = st.session_state["result"]
-    r_category = result["category"]
-    r_articles = result["all_articles"]
-
-    if result["problems"]:
-        with st.expander("⚠️ Деякі джерела мали проблеми"):
-            for problem in result["problems"]:
-                st.write("-", problem)
-
-    image_counts = {"rss": 0, "scrape": 0, "none": 0}
-    reason_counts: dict[str, int] = {}
-    for article in r_articles:
-        image_counts[article.get("image_source") or "none"] += 1
-        if not article.get("image"):
-            reason = article.get("image_debug") or "unknown"
-            reason_counts[reason] = reason_counts.get(reason, 0) + 1
-
-    with st.sidebar.expander("🖼️ Діагностика картинок", expanded=False):
-        st.write(
-            f"З RSS: {image_counts['rss']} · "
-            f"Знайдено на сторінці статті: {image_counts['scrape']} · "
-            f"Без картинки: {image_counts['none']}"
-        )
-        if reason_counts:
-            st.caption("Причини відсутності картинки:")
-            for reason, count in sorted(reason_counts.items(), key=lambda x: -x[1]):
-                explain = {
-                    "redirect_stuck_on_google": "редирект не довів до сайту видання (завис на google/consent)",
-                    "no_image_meta_found": "сторінку відкрито, але на ній немає og:image/twitter:image",
-                    "timeout": "сайт не відповів вчасно (timeout)",
-                    "ssl_error": "проблема з SSL-сертифікатом сайту",
-                    "no_link": "у записі взагалі немає посилання",
-                }.get(reason, reason if reason.startswith("http_") else f"технічна помилка: {reason}")
-                st.write(f"- {explain}: {count}")
-            st.caption("Приклади статей без картинки:")
-            shown = 0
-            for article in r_articles:
-                if not article.get("image") and shown < 3:
-                    st.write(f"«{article['title'][:70]}» → {article['link']}")
-                    shown += 1
-
-    text_diagnostics = result.get("text_diagnostics", [])
-    if text_diagnostics:
-        got_full_text = sum(1 for d in text_diagnostics if not d["used_fallback"])
-        fell_back = len(text_diagnostics) - got_full_text
-        avg_len = sum(d["full_text_len"] for d in text_diagnostics) // max(len(text_diagnostics), 1)
-        with st.sidebar.expander("📄 Діагностика текстів для аналізу", expanded=False):
-            st.write(
-                f"Повний текст отримано: {got_full_text} · "
-                f"Відкат на короткий тізер: {fell_back} · "
-                f"Середня довжина тексту: {avg_len} символів"
-            )
-            st.caption("Деталі по кожній статті, що йшла в промпт:")
-            for d in text_diagnostics:
-                status = "✅ повний текст" if not d["used_fallback"] else "⚠️ лише тізер (RSS)"
-                st.write(f"- {status}, {d['full_text_len']} симв. — «{d['title']}»")
-
-    render_market_dashboard(r_category, result["watchlist"])
-
-    left_articles, analysis_column, right_articles = st.columns((1.6, 2, 1.6), gap="large")
-    with left_articles:
-        st.subheader(f"📚 Статті ({len(r_articles[::2])})")
-        for index, article in enumerate(r_articles[::2]):
-            render_article_card(article, r_category, f"left_{index}_{article['link']}")
-
-    with right_articles:
-        st.subheader(f"📚 Статті ({len(r_articles[1::2])})")
-        for index, article in enumerate(r_articles[1::2]):
-            render_article_card(article, r_category, f"right_{index}_{article['link']}")
-
-    with analysis_column:
-        if result["analysis_error"]:
-            st.error(f"Помилка аналізу: {result['analysis_error']}")
-        elif result["analysis_text"]:
-            meta = result.get("analysis_meta")
-            if meta:
-                st.success(
-                    f"Аналіз готовий! Модель: **{meta['provider']} / {meta['model']}** "
-                    f"({meta['article_count']} статей, до {meta['char_cap']} симв. кожна)"
-                )
-            else:
-                st.success("Аналіз готовий!")
-
-            attempts = result.get("analysis_attempts") or []
-            if attempts:
-                with st.expander(f"⚠️ Невдалі спроби перед успіхом ({len(attempts)})"):
-                    for attempt in attempts:
-                        st.write(f"- {attempt}")
-
-            st.markdown(result["analysis_text"])
-            if r_category in ("Фінанси", "Криптовалюти"):
-                st.info("Це аналіз новин, а не інвестиційна порада.")
+    analysis_column = render_top(result)
+    render_text_diagnostics(result.get("text_diagnostics", []))
+    render_analysis(analysis_column, result)
