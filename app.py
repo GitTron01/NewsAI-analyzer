@@ -260,6 +260,25 @@ st.markdown(
             h1 { font-size: 1.5rem !important; }
             h2 { font-size: 1.25rem !important; }
             h3 { font-size: 1.1rem !important; }
+
+            /* Блок аналізу має пріоритет: піднімаємо його на перше місце
+               серед left/analysis/right (замість того, щоб бути затиснутим
+               між двома довгими списками статей), і даємо йому власну
+               прокрутку, якщо текст довгий, щоб він розкривався повністю,
+               не залежачи від висоти сусідніх блоків. */
+            [data-testid="stHorizontalBlock"]:has(.st-key-analysis_priority_block)
+                [data-testid="column"]:has(.st-key-analysis_priority_block) {
+                order: -1 !important;
+            }
+            .st-key-analysis_priority_block {
+                border: 1px solid rgba(128, 128, 128, 0.35);
+                border-radius: 10px;
+                padding: 12px;
+                margin-bottom: 14px;
+                max-height: 75vh;
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+            }
         }
     </style>
     """,
@@ -563,8 +582,8 @@ def render_price_chart(
             rows=2,
             cols=1,
             shared_xaxes=True,
-            row_heights=[0.75, 0.25],
-            vertical_spacing=0.03,
+            row_heights=[0.66, 0.34],
+            vertical_spacing=0.04,
         )
     else:
         fig = make_subplots(rows=1, cols=1)
@@ -657,13 +676,18 @@ def render_price_chart(
         st.markdown(f"### {title}")
 
     layout_dragmode = "pan"
-    layout_height = max(280, min(800, int(400 * float(vertical_scale))))
+    # Мінімум піднято з 280 до 340 і зроблено окремо для графіків з об'ємом:
+    # при row_heights [0.66, 0.34] і старому мінімумі 280 рядок об'єму
+    # (~95px) разом з підписами осі впритул підходив до нижньої межі
+    # iframe і на вузьких екранах (телефон) обрізався.
+    base_min_height = 340 if has_volume_data else 280
+    layout_height = max(base_min_height, min(800, int(400 * float(vertical_scale))))
 
     fig.update_layout(
         uirevision=key,
         dragmode=layout_dragmode,
         height=layout_height,
-        margin=dict(l=5, r=5, t=25, b=5),
+        margin=dict(l=5, r=5, t=25, b=30 if has_volume_data else 5),
         template=palette["plotly_template"],
         paper_bgcolor=palette["paper_bgcolor"],
         plot_bgcolor=palette["plot_bgcolor"],
@@ -1440,11 +1464,17 @@ def render_top(result, force_paused: bool = False):
 
     render_market_dashboard(r_category, result["watchlist"], force_paused=force_paused)
 
-    left_articles, analysis_column, right_articles = st.columns((1.6, 2, 1.6), gap="large")
+    left_articles, analysis_col_outer, right_articles = st.columns((1.6, 2, 1.6), gap="large")
     with left_articles:
         st.subheader(f"📚 Статті ({len(r_articles[::2])})")
         for index, article in enumerate(r_articles[::2]):
             render_article_card(article, r_category, f"left_{index}_{article['link']}")
+
+    with analysis_col_outer:
+        # key дає стабільний CSS-клас (.st-key-analysis_priority_block),
+        # за яким мобільний @media-блок вище піднімає цей контейнер над
+        # списками статей і додає йому прокрутку.
+        analysis_column = st.container(key="analysis_priority_block")
 
     with right_articles:
         st.subheader(f"📚 Статті ({len(r_articles[1::2])})")
@@ -1622,6 +1652,7 @@ if run_analysis:
 4. Посилайся на джерела за назвою (наприклад, «за даними Reuters...», «як повідомляє Укрінформ...»).
 5. Дотримуйся чіткої, стислої та аналітичної мови. Кожен із 5 пунктів структури має бути обсягом 60–90 слів.
 6. Виводь ТІЛЬКИ готовий текст аналітичного звіту. Жодних приміток, вступів чи службових коментарів.
+7. КАТЕГОРИЧНО ЗАБОРОНЕНО додавати після звіту будь-яку самоперевірку, підсумок дотримання вимог, підрахунок слів, список використаних джерел окремим блоком чи мета-коментарі на кшталт "Length per section", "Sources referenced", "Structure:", "PERFECT", "Check range". Відповідь має закінчуватись останнім реченням пункту 5 і нічим більше.
 
 НАДАНИЙ НОВИННИЙ КОРПУС СТАТЕЙ:
 {raw_text}
@@ -1676,6 +1707,27 @@ if run_analysis:
         return "request too large" in msg or "tokens per minute" in msg or (
             "413" in msg and "token" in msg
         )
+
+    def _strip_meta_tail(text: str) -> str:
+        """Страховка на випадок, якщо модель все ж таки дописала службову
+        самоперевірку після звіту (спостерігалось у gemini-3.6-flash) —
+        всупереч прямій забороні в промпті. Обрізаємо текст по першому
+        входженню характерних маркерів такого блоку."""
+        markers = [
+            "\nLength per section",
+            "\nSources referenced",
+            "\nStructure:",
+            "\nWord count",
+            "\n* Length per section",
+            "\n* Sources referenced",
+            "\n* Structure:",
+        ]
+        cut_at = len(text)
+        for marker in markers:
+            idx = text.find(marker)
+            if idx != -1:
+                cut_at = min(cut_at, idx)
+        return text[:cut_at].rstrip()
 
     analysis_text = None
     analysis_error = None
@@ -1855,7 +1907,7 @@ if run_analysis:
                             errors.append(f"Prompt Build Error: {p_err}")
                             break
 
-                        max_out_tokens = 2048 if provider["name"] == "Groq" else 3000
+                        max_out_tokens = 2048 if provider["name"] == "Groq" else 3600
                         temperature = 0.15  # 👈 Додай це тут
 
                         analysis_placeholder.info(
@@ -1891,6 +1943,8 @@ if run_analysis:
 
                             if not current_text:
                                 raise RuntimeError("Модель повернула порожню відповідь (0 символів)")
+
+                            current_text = _strip_meta_tail(current_text)
 
                             analysis_text = current_text
                             analysis_error = None
