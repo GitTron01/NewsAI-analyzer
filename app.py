@@ -264,10 +264,11 @@ st.markdown(
             /* Блок аналізу має пріоритет: піднімаємо його на перше місце
                серед left/analysis/right (замість того, щоб бути затиснутим
                між двома довгими списками статей), і даємо йому власну
-               прокрутку, якщо текст довгий, щоб він розкривався повністю,
-               не залежачи від висоти сусідніх блоків. */
-            [data-testid="stHorizontalBlock"]:has(.st-key-analysis_priority_block)
-                [data-testid="column"]:has(.st-key-analysis_priority_block) {
+               прокрутку, якщо текст довгий. Використовуємо ЯВНИЙ
+               :nth-child всередині іменованої обгортки (а не :has(),
+               який на частині мобільних браузерів/вебв'ю не підтримується
+               і саме тому раніше "іноді" не спрацьовував). */
+            .st-key-articles_analysis_row [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(2) {
                 order: -1 !important;
             }
             .st-key-analysis_priority_block {
@@ -388,6 +389,78 @@ def cmc_history(api_key: str, crypto_id: int, count: int = 7) -> list[dict]:
             },
         })
     return result
+
+
+COINGECKO_ID_MAP = {
+    1: "bitcoin",
+    1027: "ethereum",
+    5426: "solana",
+    52: "ripple",
+    74: "dogecoin",
+    2010: "cardano",
+}
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def coingecko_volume_series(gecko_id: str, days: int) -> list[tuple[float, float]]:
+    """Реальний торговий об'єм (total_volumes) з CoinGecko.
+
+    Twelve Data ПРИНЦИПОВО не віддає volume для валютних пар (BTC/USD
+    тощо, підтверджено офіційною документацією: "Non-currency instruments
+    also include volume information") — тому для крипти беремо його
+    з окремого джерела, а не з орієнтовної оцінки по амплітуді свічки.
+    Повертає список (unix_timestamp, volume)."""
+    url = f"https://api.coingecko.com/api/v3/coins/{gecko_id}/market_chart?" + urllib.parse.urlencode(
+        {"vs_currency": "usd", "days": max(1, days)}
+    )
+    data = api_json(url)
+    raw_volumes = data.get("total_volumes", [])
+    if not raw_volumes:
+        raise RuntimeError("CoinGecko не повернув дані об'єму.")
+    return [(ts_ms / 1000, float(vol)) for ts_ms, vol in raw_volumes]
+
+
+def _parse_candle_datetime(raw_dt):
+    """Той самий набір форматів дат, що й render_price_chart, але тут
+    потрібен саме unix timestamp (для порівняння з CoinGecko)."""
+    if raw_dt is None:
+        return None
+    if isinstance(raw_dt, (int, float)):
+        return raw_dt / 1000 if raw_dt > 1e12 else raw_dt
+    raw_value = str(raw_dt).strip()
+    if raw_value.endswith("Z"):
+        raw_value = raw_value[:-1]
+    for parser in (datetime.fromisoformat, lambda s: datetime.strptime(s, "%Y-%m-%d %H:%M:%S")):
+        try:
+            dt = parser(raw_value)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.timestamp()
+        except ValueError:
+            continue
+    return None
+
+
+def attach_real_crypto_volume(points: list[dict], crypto_id: int, days: int) -> list[dict]:
+    """Домальовує РЕАЛЬНИЙ об'єм (CoinGecko) до кожної свічки Twelve Data
+    за найближчою міткою часу. Якщо CoinGecko недоступний — points
+    повертаються без змін, і render_price_chart сам підставить орієнтовну
+    оцінку (стара поведінка як запасний варіант, не регресія)."""
+    gecko_id = COINGECKO_ID_MAP.get(crypto_id)
+    if not gecko_id:
+        return points
+    try:
+        series = coingecko_volume_series(gecko_id, days)
+    except Exception:
+        return points
+
+    for point in points:
+        point_ts = _parse_candle_datetime(point.get("datetime"))
+        if point_ts is None:
+            continue
+        nearest_vol = min(series, key=lambda item: abs(item[0] - point_ts))[1]
+        point["volume"] = nearest_vol
+    return points
 
 
 @st.cache_data(ttl=30, show_spinner=False)
@@ -989,6 +1062,14 @@ def _render_market_dashboard_body(category: str, watchlist: list[str]) -> None:
         st.warning(f"Дані недоступні: {error}")
         points = st.session_state.get(points_key)
 
+    # Для крипти Twelve Data не дає volume взагалі (валютні пари) — тому
+    # тут довантажуємо РЕАЛЬНИЙ об'єм з CoinGecko і "домальовуємо" його
+    # до вже отриманих свічок за міткою часу, замість орієнтовної оцінки.
+    if points and is_crypto_category:
+        crypto_id = dict(cryptos).get(selected_asset)
+        if crypto_id:
+            points = attach_real_crypto_volume(points, crypto_id, selected_days)
+
     if points:
         render_price_chart(
             points,
@@ -1464,22 +1545,27 @@ def render_top(result, force_paused: bool = False):
 
     render_market_dashboard(r_category, result["watchlist"], force_paused=force_paused)
 
-    left_articles, analysis_col_outer, right_articles = st.columns((1.6, 2, 1.6), gap="large")
-    with left_articles:
-        st.subheader(f"📚 Статті ({len(r_articles[::2])})")
-        for index, article in enumerate(r_articles[::2]):
-            render_article_card(article, r_category, f"left_{index}_{article['link']}")
+    # Обгортка з key дає стабільний CSS-клас (.st-key-articles_analysis_row)
+    # для батьківського flex-блоку колонок — щоб у мобільному CSS можна було
+    # переставити порядок колонок через простий :nth-child, БЕЗ :has(),
+    # який підтримують не всі мобільні браузери/вебв'ю (це й було причиною,
+    # чому раніше блок аналізу "іноді" все одно лишався затиснутим).
+    with st.container(key="articles_analysis_row"):
+        left_articles, analysis_col_outer, right_articles = st.columns((1.6, 2, 1.6), gap="large")
+        with left_articles:
+            st.subheader(f"📚 Статті ({len(r_articles[::2])})")
+            for index, article in enumerate(r_articles[::2]):
+                render_article_card(article, r_category, f"left_{index}_{article['link']}")
 
-    with analysis_col_outer:
-        # key дає стабільний CSS-клас (.st-key-analysis_priority_block),
-        # за яким мобільний @media-блок вище піднімає цей контейнер над
-        # списками статей і додає йому прокрутку.
-        analysis_column = st.container(key="analysis_priority_block")
+        with analysis_col_outer:
+            # key дає стабільний CSS-клас (.st-key-analysis_priority_block)
+            # для самого блоку аналізу — рамка/прокрутка на мобільному.
+            analysis_column = st.container(key="analysis_priority_block")
 
-    with right_articles:
-        st.subheader(f"📚 Статті ({len(r_articles[1::2])})")
-        for index, article in enumerate(r_articles[1::2]):
-            render_article_card(article, r_category, f"right_{index}_{article['link']}")
+        with right_articles:
+            st.subheader(f"📚 Статті ({len(r_articles[1::2])})")
+            for index, article in enumerate(r_articles[1::2]):
+                render_article_card(article, r_category, f"right_{index}_{article['link']}")
 
     return analysis_column
 
