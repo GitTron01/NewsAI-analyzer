@@ -26,6 +26,8 @@ from plotly.subplots import make_subplots
 load_dotenv()
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY")
 COINMARKETCAP_API_KEY = os.getenv("COINMARKETCAP_API_KEY")
 RSS_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -1093,6 +1095,34 @@ def resolve_article_page(google_link: str) -> tuple[str, str | None, str]:
         return final_url, None, f"exception:{type(error).__name__}"
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def extract_article_text(url: str, max_chars: int = 1800) -> str:
+    """Витягує основний текст статті зі сторінки видання (а не куций
+    RSS-тізер у 1-2 речення) — без цього LLM просто нема з чого робити
+    «глибокий» аналіз і вона змушена узагальнювати/фантазувати."""
+    if not url:
+        return ""
+    try:
+        headers = {
+            "User-Agent": RSS_USER_AGENT,
+            "Accept-Language": "en-US,en;q=0.9,uk;q=0.8",
+        }
+        res = requests.get(url, headers=headers, timeout=8.0)
+        if res.status_code != 200:
+            return ""
+        soup = BeautifulSoup(res.text, "html.parser")
+        for tag in soup(["script", "style", "nav", "footer", "header", "aside", "figure"]):
+            tag.decompose()
+
+        container = soup.find("article") or soup
+        paragraphs = [p.get_text(" ", strip=True) for p in container.find_all("p")]
+        paragraphs = [p for p in paragraphs if len(p) > 40]  # відкидаємо підписи/меню
+        text = " ".join(paragraphs)
+        return text[:max_chars]
+    except Exception:
+        return ""
+
+
 def process_entry_to_article(source: str, entry: dict) -> dict:
     """Обробляє запис RSS і отримує картинку."""
     google_link = entry.get("link", "")
@@ -1306,55 +1336,224 @@ if run_analysis:
         st.stop()
 
     # Обрізаємо кількість статей у промпті, щоб не впиратись у ліміт токенів
-    # на хвилину навіть після виправлення квоти ключа.
-    MAX_ARTICLES_FOR_ANALYSIS = 30
-    raw_text = "\n---\n".join(
-        f"Джерело: {article['source']}\nЗаголовок: {article['title']}\nОпис: {article['summary']}"
-        for article in all_articles[:MAX_ARTICLES_FOR_ANALYSIS]
-    )
+    # на хвилину навіть після виправлення квоти ключа. Реальний запас під
+    # ліміт визначаємо адаптивно нижче (build_material_text + retry-цикл),
+    # тут беремо із запасом «зверху», а звужуємо вже за фактом відповіді
+    # сервера — точно передбачити кількість токенів наперед неможливо
+    # (токенізатор по-різному «важить» кирилицю й латиницю).
+    MAX_ARTICLES_FOR_ANALYSIS = 12
+    articles_for_analysis = all_articles[:MAX_ARTICLES_FOR_ANALYSIS]
+
+    # RSS-тізер — це 1-2 речення, з нього неможливо зробити глибокий аналіз.
+    # Довантажуємо основний текст статей паралельно (лише для тих, що йдуть
+    # у промпт), і використовуємо його замість/на додачу до тізера.
+    with st.spinner("Дочитую повні тексти статей для глибшого аналізу..."):
+        full_texts: dict[int, str] = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            future_to_index = {
+                executor.submit(extract_article_text, article["link"]): index
+                for index, article in enumerate(articles_for_analysis)
+                if article.get("link")
+            }
+            for future in concurrent.futures.as_completed(future_to_index):
+                index = future_to_index[future]
+                try:
+                    full_texts[index] = future.result(timeout=9.0)
+                except Exception:
+                    full_texts[index] = ""
+
+    # Діагностика: скільки статей реально дали повний текст, а скільки
+    # відкотилось на короткий RSS-тізер (і чому) — щоб було видно, чи
+    # довантаження тексту взагалі спрацьовує, а не просто вірити на слово.
+    text_diagnostics = []
+    for index, article in enumerate(articles_for_analysis):
+        body = full_texts.get(index, "")
+        text_diagnostics.append({
+            "title": article["title"][:70],
+            "link": article.get("link", ""),
+            "full_text_len": len(body),
+            "used_fallback": len(body) <= 200,
+        })
+
     market_note = "\n4. **Можливий вплив на ринок** — коротко поясни можливий зв’язок новин із цінами чи настроями інвесторів." if category in ("Фінанси", "Криптовалюти") else ""
+
+    def build_prompt(articles: list, char_cap: int) -> str:
+        """Будує промпт із обмеженням довжини тексту КОЖНОЇ статті —
+        char_cap дозволяє звужувати розмір запиту на льоту, коли сервер
+        каже, що токенів забагато, без повного переписування логіки."""
+        parts = []
+        for index, article in enumerate(articles):
+            body = full_texts.get(index, "")
+            if len(body) <= 200:
+                body = article["summary"]  # відкат на RSS-тізер
+            parts.append(
+                f"Джерело: {article['source']}\nЗаголовок: {article['title']}\nТекст: {body[:char_cap]}"
+            )
+        raw_text = "\n---\n".join(parts)
+
+        return f"""Ти — старший політичний та економічний аналітик з 15-річним досвідом, який пише для професійної аудиторії. Твій стиль — конкретний, з фактами та цифрами з матеріалів, без води і загальних фраз на кшталт «ситуація складна» чи «потрібно уважно стежити».
+
+Категорія: {category}. Тема: {topic}. Відстежувані активи/компанії: {', '.join(watchlist) or 'не вказано'}.
+
+ПРАВИЛА:
+- Спирайся ЛИШЕ на факти з матеріалів нижче. Не вигадуй цифри, цитати чи події, яких там немає.
+- Якщо матеріали суперечать одне одному або чогось не вистачає для висновку — прямо про це напиши.
+- Посилайся на джерела за назвою («за даними Reuters...»). Уникай канцеляриту й загальних фраз без змісту.
+- Кожен пункт звіту — мінімум 100 слів і щонайменше 2 конкретні деталі (цифра, дата, назва) з матеріалів.
+
+Матеріали (заголовок + текст/витяг зі статті):
+{raw_text}
+
+Надай детальний звіт українською за такою структурою:
+1. **Глибокий контекст та Головна суть** — що саме сталося, передумови події та чому це важливо зараз.
+2. **Порівняльний аналіз та достовірність джерел** — як кожне джерело висвітлює подію, на чому робить акценти, наскільки йому можна довіряти.
+3. **Причинно-наслідкові зв'язки** — як ця подія впливає на суміжні сфери (геополітику, економіку, ринки, технології).{market_note}
+4. **Сліпі плями та приховані ризики** — що джерела замалчують або залишають без відповіді.
+5. **Стратегічний прогноз** — короткострокові та довгострокові наслідки, 4–5 конкретних маркерів для спостереження.
+"""
+
+    SYSTEM_INSTRUCTION_UK = (
+        "Ти відповідаєш ВИКЛЮЧНО українською мовою. Це правило абсолютне: "
+        "жодного слова, фрази чи заголовка англійською чи будь-якою іншою мовою "
+        "в тексті відповіді, навіть якщо матеріали для аналізу — англомовні. "
+        "Назви джерел (Reuters, AP News тощо) і власні назви можна лишати як є, "
+        "решта тексту — тільки українською."
+    )
+
+    def call_gemini_native(model_name: str, prompt_text: str, api_key: str, max_tokens: int, temperature: float) -> str:
+        """Нові ключі Google (формат `AQ.Ab...`, т.зв. auth keys) мають
+        відомий баг у зв'язці з OpenAI-сумісним ендпоінтом Gemini —
+        сервер повертає 'Multiple authentication credentials received',
+        навіть якщо ключ повністю робочий. Тому для Gemini йдемо напряму
+        через рідний REST-ендпоінт з єдиним заголовком x-goog-api-key,
+        де цей баг не відтворюється, замість client.chat.completions.create."""
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+        headers = {
+            "x-goog-api-key": api_key,
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "systemInstruction": {"parts": [{"text": SYSTEM_INSTRUCTION_UK}]},
+            "contents": [{"parts": [{"text": prompt_text}]}],
+            "generationConfig": {
+                "maxOutputTokens": max_tokens,
+                "temperature": temperature,
+            },
+        }
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
+        if response.status_code != 200:
+            raise RuntimeError(f"Error code: {response.status_code} - {response.text[:500]}")
+        data = response.json()
+        try:
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        except (KeyError, IndexError) as exc:
+            raise RuntimeError(f"Неочікувана відповідь Gemini: {data}") from exc
+
+    def _is_size_error(error: Exception) -> bool:
+        msg = str(error).lower()
+        return "request too large" in msg or "tokens per minute" in msg or (
+            "413" in msg and "token" in msg
+        )
 
     analysis_text = None
     analysis_error = None
+    analysis_meta = None  # який провайдер/модель/розмір реально спрацював
     with st.spinner("Створюю український аналіз..."):
-        try:
-            if not OPENROUTER_API_KEY:
-                analysis_error = "Не знайдено OPENROUTER_API_KEY у файлі .env"
-            else:
-                client = OpenAI(
-                    base_url="https://openrouter.ai/api/v1",
-                    api_key=OPENROUTER_API_KEY,
-                )
+        # Пробуємо провайдерів по черзі: Gemini має набагато щедріший
+        # безкоштовний ліміт токенів (до 1M TPM), тож ставимо його першим —
+        # найменше шансів впертися в "забагато токенів". Groq — швидкий і
+        # надійний запасний варіант. OpenRouter — останній резерв (там
+        # ліміт добовий, а не хвилинний, тож раз вичерпаний — довго не
+        # відновиться).
+        providers = []
+        if GEMINI_API_KEY:
+            providers.append({
+                "name": "Gemini",
+                "native": True,
+                "api_key": GEMINI_API_KEY,
+                "models": ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-2.5-flash-lite"],
+            })
+        if GROQ_API_KEY:
+            providers.append({
+                "name": "Groq",
+                "base_url": "https://api.groq.com/openai/v1",
+                "api_key": GROQ_API_KEY,
+                "models": ["llama-3.3-70b-versatile", "openai/gpt-oss-120b"],
+            })
+        if OPENROUTER_API_KEY:
+            providers.append({
+                "name": "OpenRouter",
+                "base_url": "https://openrouter.ai/api/v1",
+                "api_key": OPENROUTER_API_KEY,
+                "models": ["openrouter/free"],
+                "extra_body": {
+                    "models": [
+                        "qwen/qwen3-next-80b-a3b-instruct:free",
+                        "openai/gpt-oss-20b:free",
+                    ]
+                },
+            })
 
-                prompt_text = f"""Ти — старший политичний та економічний аналітик. 
-Категорія: {category}. Тема: {topic}. Відстежувані активи/компанії: {', '.join(watchlist) or 'не вказано'}.
+        if not providers:
+            analysis_error = "Не знайдено жодного ключа (GEMINI_API_KEY, GROQ_API_KEY або OPENROUTER_API_KEY) у файлі .env"
+        else:
+            # Кожен крок — (кількість статей, символів на статтю). Якщо
+            # сервер відповідає «забагато токенів», беремо наступний,
+            # менший крок і пробуємо той самий провайдер/модель знову —
+            # замість того, щоб одразу здаватись і йти до іншого провайдера.
+            size_steps = [
+                (len(articles_for_analysis), 1600),
+                (10, 900),
+                (7, 600),
+                (5, 400),
+                (3, 300),
+            ]
 
-Проведи максимально глибокий, критичний та розгорнутий аналіз наданих матеріалів українською мовою.
+            errors = []
+            for provider in providers:
+                client = None
+                if not provider.get("native"):
+                    client = OpenAI(
+                        base_url=provider["base_url"],
+                        api_key=provider["api_key"],
+                    )
+                for model_name in provider["models"]:
+                    for article_count, char_cap in size_steps:
+                        prompt_text = build_prompt(articles_for_analysis[:article_count], char_cap)
+                        try:
+                            if provider.get("native"):
+                                analysis_text = call_gemini_native(
+                                    model_name, prompt_text, provider["api_key"],
+                                    max_tokens=8192, temperature=0.4,
+                                )
+                            else:
+                                completion = client.chat.completions.create(
+                                    model=model_name,
+                                    messages=[{"role": "user", "content": prompt_text}],
+                                    max_tokens=8192,
+                                    temperature=0.4,
+                                    extra_body=provider.get("extra_body"),
+                                )
+                                analysis_text = completion.choices[0].message.content
+                            analysis_meta = {
+                                "provider": provider["name"],
+                                "model": model_name,
+                                "article_count": article_count,
+                                "char_cap": char_cap,
+                            }
+                            break  # успіх — цю модель більше не звужуємо
+                        except Exception as error:
+                            errors.append(f"{provider['name']}/{model_name} ({article_count} ст., {char_cap} симв.): {error}")
+                            if _is_size_error(error):
+                                continue  # пробуємо менший розмір запиту
+                            break  # інша помилка (авторизація, добова квота) — зменшення розміру не допоможе
+                    if analysis_text is not None:
+                        break
+                if analysis_text is not None:
+                    break
 
-Матеріали:
-{raw_text}
-
-Надай детальний звіт за такою структурою:
-1. **Глибокий контекст та Головна суть** — що саме сталося, передумови події та чому це важливо зараз (5–7 речень).
-2. **Порівняльний аналіз та достовірність джерел** — як кожне джерело висвітлює подію, на чому робить акценти та які маніпуляції чи нарративи спостерігаються; для кожного джерела коротко оціни його достовірність і можливу упередженість (репутація видання, ознаки однобічної подачі саме в цих матеріалах).
-3. **Причинно-наслідкові зв'язки** — як ця подія впливає на суміжні сфери (геополітику, економіку, ринки чи технологічний сектор).{market_note}
-4. **Сліпі плями та приховані ризики** — що джерела замалчують або які питання залишаються без відповідей.
-5. **Стратегічний прогноз** — короткострокові та довгострокові наслідки, 4–5 конкретних маркерів для подальшого спостереження.
-"""
-                completion = client.chat.completions.create(
-                    model="openrouter/free",
-                    messages=[{"role": "user", "content": prompt_text}],
-                    max_tokens=3500,
-                    extra_body={
-                        "models": [
-                            "qwen/qwen3-next-80b-a3b-instruct:free",
-                            "openai/gpt-oss-20b:free"
-                        ]
-                    }
-                )
-                analysis_text = completion.choices[0].message.content
-        except Exception as error:
-            analysis_error = str(error)
+            if analysis_text is None:
+                analysis_error = " | ".join(errors)
 
     # Зберігаємо все у session_state: перемикання графіка, автооновлення
     # цін чи будь-який інший віджет перезапускає скрипт Streamlit «з нуля»,
@@ -1367,6 +1566,9 @@ if run_analysis:
         "problems": problems,
         "analysis_text": analysis_text,
         "analysis_error": analysis_error,
+        "analysis_meta": analysis_meta,
+        "analysis_attempts": errors if providers else [],
+        "text_diagnostics": text_diagnostics,
     }
 
 if "result" in st.session_state:
@@ -1411,6 +1613,22 @@ if "result" in st.session_state:
                     st.write(f"«{article['title'][:70]}» → {article['link']}")
                     shown += 1
 
+    text_diagnostics = result.get("text_diagnostics", [])
+    if text_diagnostics:
+        got_full_text = sum(1 for d in text_diagnostics if not d["used_fallback"])
+        fell_back = len(text_diagnostics) - got_full_text
+        avg_len = sum(d["full_text_len"] for d in text_diagnostics) // max(len(text_diagnostics), 1)
+        with st.sidebar.expander("📄 Діагностика текстів для аналізу", expanded=False):
+            st.write(
+                f"Повний текст отримано: {got_full_text} · "
+                f"Відкат на короткий тізер: {fell_back} · "
+                f"Середня довжина тексту: {avg_len} символів"
+            )
+            st.caption("Деталі по кожній статті, що йшла в промпт:")
+            for d in text_diagnostics:
+                status = "✅ повний текст" if not d["used_fallback"] else "⚠️ лише тізер (RSS)"
+                st.write(f"- {status}, {d['full_text_len']} симв. — «{d['title']}»")
+
     render_market_dashboard(r_category, result["watchlist"])
 
     left_articles, analysis_column, right_articles = st.columns((1.6, 2, 1.6), gap="large")
@@ -1428,7 +1646,21 @@ if "result" in st.session_state:
         if result["analysis_error"]:
             st.error(f"Помилка аналізу: {result['analysis_error']}")
         elif result["analysis_text"]:
-            st.success("Аналіз готовий!")
+            meta = result.get("analysis_meta")
+            if meta:
+                st.success(
+                    f"Аналіз готовий! Модель: **{meta['provider']} / {meta['model']}** "
+                    f"({meta['article_count']} статей, до {meta['char_cap']} симв. кожна)"
+                )
+            else:
+                st.success("Аналіз готовий!")
+
+            attempts = result.get("analysis_attempts") or []
+            if attempts:
+                with st.expander(f"⚠️ Невдалі спроби перед успіхом ({len(attempts)})"):
+                    for attempt in attempts:
+                        st.write(f"- {attempt}")
+
             st.markdown(result["analysis_text"])
             if r_category in ("Фінанси", "Криптовалюти"):
                 st.info("Це аналіз новин, а не інвестиційна порада.")
