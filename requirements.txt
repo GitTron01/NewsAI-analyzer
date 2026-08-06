@@ -1,0 +1,9 @@
+streamlit>=1.37
+pandas
+plotly
+feedparser
+requests
+beautifulsoup4
+googlenewsdecoder
+python-dotenv
+openai
