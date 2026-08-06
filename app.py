@@ -135,14 +135,17 @@ CRYPTO_ALIASES = {
 
 CRYPTO_CHART_INTERVALS = {
     # Порядок важливий: перший елемент — це те, що обирається за
-    # замовчуванням (st.radio без явного index). Раніше для "1Д" першим
-    # був "1хв" — 1440 свічок, які на вузькому екрані телефона стискались
-    # в стовпчики тоншими за піксель, і об'єм візуально зникав (хоча дані
-    # були коректні). "15хв" (96 свічок) лишається читабельним і на
-    # телефоні, а тонші інтервали й далі доступні як вибір.
+    # замовчуванням (st.radio без явного index). Раніше найдрібніший
+    # інтервал стояв першим у кожному періоді (1хв/15хв/1г) — на
+    # вузькому екрані телефона свічки та стовпчики об'єму стискались
+    # тонше за піксель і візуально зникали (хоча дані були коректні).
+    # Тепер за замовчуванням — найгрубіший інтервал кожного періоду
+    # (менше свічок → однаково добре видно і на телефоні, і на десктопі,
+    # так само як в акціях/категорії Маска); дрібніші лишаються доступні
+    # як вибір.
     "1Д": ["15хв", "5хв", "1хв"],
-    "7Д": ["15хв", "1г", "4г"],
-    "30Д": ["1г", "4г", "1д"],
+    "7Д": ["4г", "1г", "15хв"],
+    "30Д": ["1д", "4г", "1г"],
 }
 
 INTERVAL_MAP = {
@@ -266,6 +269,18 @@ st.markdown(
             h1 { font-size: 1.5rem !important; }
             h2 { font-size: 1.25rem !important; }
             h3 { font-size: 1.1rem !important; }
+
+            /* Аналіз піднімається над УСІМ ринковим дашбордом (метрики,
+               слайдери, графік), а не лише над списками статей — інакше
+               в категоріях з дашбордом (крипто/акції/Маск) до аналізу
+               довелось би довго гортати повз весь дашборд. */
+            .st-key-category_content_wrap {
+                display: flex !important;
+                flex-direction: column !important;
+            }
+            .st-key-category_content_wrap > div:nth-child(2) {
+                order: -1 !important;
+            }
 
             /* Блок аналізу має пріоритет: піднімаємо його на перше місце
                серед left/analysis/right (замість того, щоб бути затиснутим
@@ -1546,24 +1561,34 @@ def render_top(result, force_paused: bool = False):
                     st.write(f"«{article['title'][:70]}» → {article['link']}")
                     shown += 1
 
-    render_market_dashboard(r_category, result["watchlist"], force_paused=force_paused)
+    # Обгортка з key дає стабільний CSS-клас (.st-key-category_content_wrap)
+    # для ринкового дашборду + рядка статей/аналізу разом. У категоріях з
+    # дашбордом (крипто/акції/Маск) він дуже довгий (метрики, слайдери,
+    # графік) — раніше аналіз піднімався лише ВСЕРЕДИНІ своєї трійки
+    # колонок, але сама трійка йшла ПІСЛЯ всього дашборду, тож на телефоні
+    # до аналізу все одно треба було довго гортати. Тепер на мобільному
+    # весь цей блок стає flex-column, і аналіз піднімається над дашбордом
+    # цілком (order:-1 нижче в CSS).
+    with st.container(key="category_content_wrap"):
+        with st.container(key="market_dashboard_slot"):
+            render_market_dashboard(r_category, result["watchlist"], force_paused=force_paused)
 
-    # Обгортка з key дає стабільний CSS-клас (.st-key-articles_analysis_row)
-    # для батьківського flex-блоку колонок — щоб у мобільному CSS можна було
-    # переставити порядок колонок через простий :nth-child, БЕЗ :has(),
-    # який підтримують не всі мобільні браузери/вебв'ю (це й було причиною,
-    # чому раніше блок аналізу "іноді" все одно лишався затиснутим).
-    with st.container(key="articles_analysis_row"):
-        left_articles, analysis_col_outer, right_articles = st.columns((1.6, 2, 1.6), gap="large")
-        with left_articles:
-            st.subheader(f"📚 Статті ({len(r_articles[::2])})")
-            for index, article in enumerate(r_articles[::2]):
-                render_article_card(article, r_category, f"left_{index}_{article['link']}")
+        # Обгортка з key дає стабільний CSS-клас (.st-key-articles_analysis_row)
+        # для батьківського flex-блоку колонок — щоб у мобільному CSS можна було
+        # переставити порядок колонок через простий :nth-child, БЕЗ :has(),
+        # який підтримують не всі мобільні браузери/вебв'ю (це й було причиною,
+        # чому раніше блок аналізу "іноді" все одно лишався затиснутим).
+        with st.container(key="articles_analysis_row"):
+            left_articles, analysis_col_outer, right_articles = st.columns((1.6, 2, 1.6), gap="large")
+            with left_articles:
+                st.subheader(f"📚 Статті ({len(r_articles[::2])})")
+                for index, article in enumerate(r_articles[::2]):
+                    render_article_card(article, r_category, f"left_{index}_{article['link']}")
 
-        with analysis_col_outer:
-            # key дає стабільний CSS-клас (.st-key-analysis_priority_block)
-            # для самого блоку аналізу — рамка/прокрутка на мобільному.
-            analysis_column = st.container(key="analysis_priority_block")
+            with analysis_col_outer:
+                # key дає стабільний CSS-клас (.st-key-analysis_priority_block)
+                # для самого блоку аналізу — рамка на мобільному.
+                analysis_column = st.container(key="analysis_priority_block")
 
         with right_articles:
             st.subheader(f"📚 Статті ({len(r_articles[1::2])})")
