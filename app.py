@@ -167,7 +167,7 @@ st.markdown(
     """
     <style>
         footer {visibility: hidden;}
-        
+
         /* Компактні відступи для мобільних пристроїв */
         .block-container {
             padding-top: 1rem !important;
@@ -176,17 +176,24 @@ st.markdown(
             padding-right: 0.5rem !important;
             max-width: 100% !important;
         }
-        
+
         /* Забороняємо сторінці виходити за межі екрана телефона */
         html, body, .stApp {
             overflow-x: hidden !important;
             max-width: 100vw !important;
         }
-        
-        # Обмежуємо переповнення в колонках та радіо-кнопках
+
+        /* Обмежуємо переповнення в колонках та радіо-кнопках */
         [data-testid="stHorizontalBlock"], [data-testid="stRadio"] {
             max-width: 100% !important;
             overflow-x: hidden !important;
+        }
+
+        /* Автоперенос довгих слів та посилань для всього блоку аналізу */
+        .stMarkdown, div[data-testid="stText"], [data-testid="stMarkdownContainer"] {
+            word-break: break-word !important;
+            white-space: pre-wrap !important;
+            overflow-wrap: break-word !important;
         }
 
         /* Адаптація для екранів телефонів (до 768px) */
