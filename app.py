@@ -134,18 +134,9 @@ CRYPTO_ALIASES = {
 }
 
 CRYPTO_CHART_INTERVALS = {
-    # Порядок важливий: перший елемент — це те, що обирається за
-    # замовчуванням (st.radio без явного index). Раніше найдрібніший
-    # інтервал стояв першим у кожному періоді (1хв/15хв/1г) — на
-    # вузькому екрані телефона свічки та стовпчики об'єму стискались
-    # тонше за піксель і візуально зникали (хоча дані були коректні).
-    # Тепер за замовчуванням — найгрубіший інтервал кожного періоду
-    # (менше свічок → однаково добре видно і на телефоні, і на десктопі,
-    # так само як в акціях/категорії Маска); дрібніші лишаються доступні
-    # як вибір.
-    "1Д": ["15хв", "5хв", "1хв"],
-    "7Д": ["4г", "1г", "15хв"],
-    "30Д": ["1д", "4г", "1г"],
+    "1Д": ["1хв", "5хв", "15хв"],
+    "7Д": ["15хв", "1г", "4г"],
+    "30Д": ["1г", "4г", "1д"],
 }
 
 INTERVAL_MAP = {
@@ -168,45 +159,6 @@ OUTPUTSIZE_MAP = {
     ("30Д", "1г"): 720,
     ("30Д", "4г"): 180,
     ("30Д", "1д"): 30,
-}
-
-# Дві палітри для графіка ціни/об'єму. Об'єм навмисно має ЯСКРАВІ, окремі
-# від свічок кольори (не просто затемнений варіант того самого зеленого/
-# червоного) — щоб стовпчики об'єму завжди чітко відрізнялись від фону,
-# незалежно від теми.
-CHART_THEMES = {
-    "Темна": {
-        "plotly_template": "plotly_dark",
-        "paper_bgcolor": "#242c3d",
-        "plot_bgcolor": "#242c3d",
-        "grid_color": "#3a4258",
-        "line_color": "#3a4258",
-        "font_color": "#d1d4dc",
-        "tick_color": "#9aa3b5",
-        "price_line_color": "#FFFFFF",
-        "candle_up": "#26a69a",
-        "candle_down": "#ef5350",
-        "volume_color": "#5ee6f2",
-        "hover_bg": "#3a4258",
-        "legend_bg": "rgba(36, 44, 61, 0.75)",
-        "hline_color": "#9aa3b5",
-    },
-    "Світла": {
-        "plotly_template": "plotly_white",
-        "paper_bgcolor": "#ffffff",
-        "plot_bgcolor": "#ffffff",
-        "grid_color": "#e3e7ee",
-        "line_color": "#d6dae3",
-        "font_color": "#1f2a3b",
-        "tick_color": "#5b6472",
-        "price_line_color": "#1f2a3b",
-        "candle_up": "#0f9d78",
-        "candle_down": "#d92c4a",
-        "volume_color": "#0f5c66",
-        "hover_bg": "#eef1f6",
-        "legend_bg": "rgba(255,255,255,0.9)",
-        "hline_color": "#5b6472",
-    },
 }
 
 st.set_page_config(page_title="Аналітик новин", page_icon="📰", layout="wide")
@@ -239,24 +191,11 @@ st.markdown(
 
         /* Адаптація для екранів телефонів (до 768px) */
         @media screen and (max-width: 768px) {
-            /* Перетворюємо всі горизонтальні колонки у вертикальний список.
-               ВАЖЛИВО: самого "width: 100%" на колонках недостатньо — без
-               явного flex-direction:column батьківський блок лишався
-               флекс-рядком, тому колонки й далі тиснули одна на одну в
-               рядок і обрізались через overflow-x:hidden вище. Через це,
-               зокрема, блок аналізу здавлювався між блоками статей. */
-            [data-testid="stHorizontalBlock"] {
-                flex-direction: column !important;
-                height: auto !important;
-                align-items: stretch !important;
-            }
+            /* Перетворюємо всі горизонтальні колонки у вертикальний список */
             [data-testid="column"] {
                 width: 100% !important;
                 flex: 1 1 100% !important;
                 min-width: 100% !important;
-                height: auto !important;
-                max-height: none !important;
-                overflow: visible !important;
             }
 
             /* Збільшуємо кнопки, щоб зручно натискати пальцем */
@@ -269,35 +208,6 @@ st.markdown(
             h1 { font-size: 1.5rem !important; }
             h2 { font-size: 1.25rem !important; }
             h3 { font-size: 1.1rem !important; }
-
-            /* Аналіз піднімається над УСІМ ринковим дашбордом (метрики,
-               слайдери, графік), а не лише над списками статей — інакше
-               в категоріях з дашбордом (крипто/акції/Маск) до аналізу
-               довелось би довго гортати повз весь дашборд. */
-            .st-key-category_content_wrap {
-                display: flex !important;
-                flex-direction: column !important;
-            }
-            .st-key-category_content_wrap > div:nth-child(2) {
-                order: -1 !important;
-            }
-
-            /* Блок аналізу має пріоритет: піднімаємо його на перше місце
-               серед left/analysis/right (замість того, щоб бути затиснутим
-               між двома довгими списками статей), і даємо йому власну
-               прокрутку, якщо текст довгий. Використовуємо ЯВНИЙ
-               :nth-child всередині іменованої обгортки (а не :has(),
-               який на частині мобільних браузерів/вебв'ю не підтримується
-               і саме тому раніше "іноді" не спрацьовував). */
-            .st-key-articles_analysis_row [data-testid="stHorizontalBlock"] > [data-testid="column"]:nth-child(2) {
-                order: -1 !important;
-            }
-            .st-key-analysis_priority_block {
-                border: 1px solid rgba(128, 128, 128, 0.35);
-                border-radius: 10px;
-                padding: 12px;
-                margin-bottom: 14px;
-            }
         }
     </style>
     """,
@@ -409,78 +319,6 @@ def cmc_history(api_key: str, crypto_id: int, count: int = 7) -> list[dict]:
     return result
 
 
-COINGECKO_ID_MAP = {
-    1: "bitcoin",
-    1027: "ethereum",
-    5426: "solana",
-    52: "ripple",
-    74: "dogecoin",
-    2010: "cardano",
-}
-
-
-@st.cache_data(ttl=60, show_spinner=False)
-def coingecko_volume_series(gecko_id: str, days: int) -> list[tuple[float, float]]:
-    """Реальний торговий об'єм (total_volumes) з CoinGecko.
-
-    Twelve Data ПРИНЦИПОВО не віддає volume для валютних пар (BTC/USD
-    тощо, підтверджено офіційною документацією: "Non-currency instruments
-    also include volume information") — тому для крипти беремо його
-    з окремого джерела, а не з орієнтовної оцінки по амплітуді свічки.
-    Повертає список (unix_timestamp, volume)."""
-    url = f"https://api.coingecko.com/api/v3/coins/{gecko_id}/market_chart?" + urllib.parse.urlencode(
-        {"vs_currency": "usd", "days": max(1, days)}
-    )
-    data = api_json(url)
-    raw_volumes = data.get("total_volumes", [])
-    if not raw_volumes:
-        raise RuntimeError("CoinGecko не повернув дані об'єму.")
-    return [(ts_ms / 1000, float(vol)) for ts_ms, vol in raw_volumes]
-
-
-def _parse_candle_datetime(raw_dt):
-    """Той самий набір форматів дат, що й render_price_chart, але тут
-    потрібен саме unix timestamp (для порівняння з CoinGecko)."""
-    if raw_dt is None:
-        return None
-    if isinstance(raw_dt, (int, float)):
-        return raw_dt / 1000 if raw_dt > 1e12 else raw_dt
-    raw_value = str(raw_dt).strip()
-    if raw_value.endswith("Z"):
-        raw_value = raw_value[:-1]
-    for parser in (datetime.fromisoformat, lambda s: datetime.strptime(s, "%Y-%m-%d %H:%M:%S")):
-        try:
-            dt = parser(raw_value)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt.timestamp()
-        except ValueError:
-            continue
-    return None
-
-
-def attach_real_crypto_volume(points: list[dict], crypto_id: int, days: int) -> list[dict]:
-    """Домальовує РЕАЛЬНИЙ об'єм (CoinGecko) до кожної свічки Twelve Data
-    за найближчою міткою часу. Якщо CoinGecko недоступний — points
-    повертаються без змін, і render_price_chart сам підставить орієнтовну
-    оцінку (стара поведінка як запасний варіант, не регресія)."""
-    gecko_id = COINGECKO_ID_MAP.get(crypto_id)
-    if not gecko_id:
-        return points
-    try:
-        series = coingecko_volume_series(gecko_id, days)
-    except Exception:
-        return points
-
-    for point in points:
-        point_ts = _parse_candle_datetime(point.get("datetime"))
-        if point_ts is None:
-            continue
-        nearest_vol = min(series, key=lambda item: abs(item[0] - point_ts))[1]
-        point["volume"] = nearest_vol
-    return points
-
-
 @st.cache_data(ttl=30, show_spinner=False)
 def cmc_quotes(api_key: str, symbols: tuple[str, ...]) -> dict:
     url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?" + urllib.parse.urlencode(
@@ -530,6 +368,13 @@ def format_usd(value) -> str:
     return f"${value:,.6f}"
 
 
+from datetime import datetime, timezone
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import pandas as pd
+import streamlit as st
+
+
 def render_price_chart(
     points: list[dict],
     title: str,
@@ -537,11 +382,12 @@ def render_price_chart(
     key: str,
     interaction_mode: str = "Pan (вільно)",
     vertical_scale: float = 1.0,
-    theme: str = "Темна",
 ) -> None:
     """Чистий професійний графік TradingView з підтримкою об'ємів для Акцій та Крипти"""
-    palette = CHART_THEMES.get(theme, CHART_THEMES["Темна"])
+    is_dark = st.session_state.get("chart_theme", "Темна 🌙") == "Темна 🌙"
+    
     rows = []
+
     for point in points:
         quote = point.get("quote", {}).get("USD", point)
         close = quote.get("close") or quote.get("price")
@@ -643,14 +489,11 @@ def render_price_chart(
     closes = df["close"].tolist()
     # Перевіряємо та підтягуємо об'єм
     volumes = []
-    volume_is_estimated = []
     for _, row in df.iterrows():
         v = row.get("volume")
-        # Якщо API Twelve Data не дає об'єм для крипти (або повертає 0/NaN),
-        # показуємо УМОВНИЙ об'єм на основі амплітуди свічки (High - Low) —
-        # це не реальні дані біржі, лише орієнтовна оцінка, тому позначаємо
-        # її окремо і підписуємо на графіку як "оцінка", щоб не ввести в оману.
+        # Якщо API Twelve Data не дає об'єм для крипти (або повертає 0/NaN)
         if v is None or pd.isna(v) or float(v) == 0:
+            # Вираховуємо умовний об'єм на основі амплітуди свічки (High - Low)
             spread = abs(row["high"] - row["low"])
             fake_vol = (
                 spread * row["close"] * 10
@@ -658,14 +501,14 @@ def render_price_chart(
                 else row["close"] * 0.1
             )
             volumes.append(fake_vol)
-            volume_is_estimated.append(True)
         else:
             volumes.append(float(v))
-            volume_is_estimated.append(False)
 
     df["volume"] = volumes
     has_volume_data = any(v > 0 for v in volumes)
-    has_estimated_volume = any(volume_is_estimated)
+
+    # Перевіряємо, чи є реальні дані об'єму в масиві
+    has_volume_data = any(v > 0 for v in volumes)
 
     # Якщо об'єму немає взагалі, робимо 1 ряд, якщо є — ділимо 75% / 25%
     if has_volume_data:
@@ -673,8 +516,8 @@ def render_price_chart(
             rows=2,
             cols=1,
             shared_xaxes=True,
-            row_heights=[0.66, 0.34],
-            vertical_spacing=0.04,
+            row_heights=[0.65, 0.45],
+            vertical_spacing=0.03,
         )
     else:
         fig = make_subplots(rows=1, cols=1)
@@ -688,8 +531,8 @@ def render_price_chart(
                 low=lows,
                 close=closes,
                 name="Ціна",
-                increasing_line_color=palette["candle_up"],
-                decreasing_line_color=palette["candle_down"],
+                increasing_line_color="#26a69a",
+                decreasing_line_color="#ef5350",
                 line_width=1,
                 whiskerwidth=0.5,
             ),
@@ -703,7 +546,7 @@ def render_price_chart(
                 y=closes,
                 mode="lines",
                 name="Лінія ціни",
-                line=dict(color=palette["price_line_color"], width=1.5),
+                line=dict(color="#FFFFFF", width=1.5),
                 hoverinfo="skip",
             ),
             row=1,
@@ -741,70 +584,81 @@ def render_price_chart(
 
     # 📊 Малювання стовпчиків об'єму для Крипти / Акцій
     if has_volume_data:
-        volume_label = "Обʼєм (оцінка)" if has_estimated_volume else "Обʼєм"
+        if is_dark:
+            # На темному тлі: ультра-світлі та ультра-яскраві неонові кольори
+            volume_colors = [
+                "#80FF80" if c >= o else "#FF8099" for o, c in zip(opens, closes)
+            ]
+            vol_opacity = 1.0
+        else:
+            # На світлому тлі: дуже темний насичений смарагдовий та темний бордовий
+            volume_colors = [
+                "#004D40" if c >= o else "#880E4F" for o, c in zip(opens, closes)
+            ]
+            vol_opacity = 0.90
+
         fig.add_trace(
             go.Bar(
                 x=dates,
                 y=volumes,
-                marker=dict(
-                    color=palette["volume_color"],
-                    line=dict(color=palette["plot_bgcolor"], width=0.5),
-                ),
-                name=volume_label,
-                opacity=1.0,
+                marker_color=volume_colors,
+                name="Обʼєм",
+                opacity=vol_opacity,
                 showlegend=False,
             ),
             row=2,
             col=1,
         )
         fig.update_yaxes(
-            title_text=volume_label, row=2, col=1, tickfont=dict(color=palette["tick_color"])
+            title_text="Обʼєм", row=2, col=1, tickfont=dict(color="#787b86")
         )
-        if has_estimated_volume:
-            st.caption("⚠️ Об'єм для цього активу недоступний з API — показана орієнтовна оцінка на основі амплітуди свічки, а не реальні дані біржі.")
 
     if title:
         st.markdown(f"### {title}")
 
     layout_dragmode = "pan"
-    # Мінімум піднято з 280 до 340 і зроблено окремо для графіків з об'ємом:
-    # при row_heights [0.66, 0.34] і старому мінімумі 280 рядок об'єму
-    # (~95px) разом з підписами осі впритул підходив до нижньої межі
-    # iframe і на вузьких екранах (телефон) обрізався.
-    base_min_height = 340 if has_volume_data else 280
-    layout_height = max(base_min_height, min(800, int(400 * float(vertical_scale))))
+    layout_height = max(280, min(800, int(400 * float(vertical_scale))))
+
+    is_dark = st.session_state.get("chart_theme", "Темна 🌙") == "Темна 🌙"
+
+    # Динамічні кольори для графіків
+    bg_color = "#181c27" if is_dark else "#ffffff"
+    grid_color = "#2a2e39" if is_dark else "#e1e3eb"
+    text_color = "#d1d4dc" if is_dark else "#131722"
+    up_color = "#089981"  # Зелені свічки
+    down_color = "#f23645"  # Червоні свічки
 
     fig.update_layout(
         uirevision=key,
         dragmode=layout_dragmode,
         height=layout_height,
-        margin=dict(l=5, r=5, t=25, b=30 if has_volume_data else 5),
-        template=palette["plotly_template"],
-        paper_bgcolor=palette["paper_bgcolor"],
-        plot_bgcolor=palette["plot_bgcolor"],
-        font=dict(color=palette["font_color"], size=10),
+        margin=dict(l=5, r=5, t=25, b=5),
+        template="plotly_dark" if is_dark else "plotly_white",
+        paper_bgcolor=bg_color,
+        plot_bgcolor=bg_color,
+        font=dict(color=text_color, size=10),
         xaxis=dict(
             showgrid=True,
-            gridcolor=palette["grid_color"],
+            gridcolor=grid_color,
             gridwidth=0.5,
             zeroline=False,
             showline=True,
-            linecolor=palette["line_color"],
+            linecolor=grid_color,
             linewidth=1,
-            tickfont=dict(color=palette["tick_color"], size=9),
+            tickfont=dict(color=text_color, size=9),
             type="date",
             rangeslider=dict(visible=False),
             rangeselector=dict(visible=False),
         ),
         yaxis=dict(
             showgrid=True,
-            gridcolor=palette["grid_color"],
+            gridcolor=grid_color,
             gridwidth=0.5,
             zeroline=False,
             showline=True,
-            linecolor=palette["line_color"],
+            linecolor=grid_color,
             linewidth=1,
-            tickfont=dict(color=palette["tick_color"], size=9),
+            tickfont=dict(color=text_color, size=9),
             tickprefix="$",
         ),
         showlegend=True,
@@ -814,12 +668,12 @@ def render_price_chart(
             y=1.01,
             xanchor="left",
             x=0,
-            bgcolor=palette["legend_bg"],
-            font=dict(color=palette["font_color"], size=9),
+            bgcolor="rgba(0, 0, 0, 0)",
+            font=dict(color=text_color, size=9),
         ),
         hovermode="x unified",
         hoverlabel=dict(
-            bgcolor=palette["hover_bg"], font_size=11, font_color=palette["font_color"]
+            bgcolor=bg_color, font_size=11, font_color=text_color
         ),
     )
 
@@ -827,13 +681,13 @@ def render_price_chart(
         fig.update_layout(
             yaxis2=dict(
                 showgrid=True,
-                gridcolor=palette["grid_color"],
+                gridcolor="#2a2e39",
                 gridwidth=0.5,
                 zeroline=False,
                 showline=True,
-                linecolor=palette["line_color"],
+                linecolor="#2a2e39",
                 linewidth=1,
-                tickfont=dict(color=palette["tick_color"], size=9),
+                tickfont=dict(color="#787b86", size=9),
             )
         )
 
@@ -842,12 +696,12 @@ def render_price_chart(
         fig.add_hline(
             y=last_price,
             line_dash="dash",
-            line_color=palette["hline_color"],
+            line_color="#787b86",
             opacity=0.5,
             line_width=1,
             annotation_text=f"{last_price:.2f}",
             annotation_position="bottom right",
-            annotation_font_color=palette["hline_color"],
+            annotation_font_color="#787b86",
         )
 
     st.plotly_chart(
@@ -992,7 +846,7 @@ def _render_market_dashboard_body(category: str, watchlist: list[str]) -> None:
                     vol_str = f"${volume:,.0f}"
                 st.caption(f"📊 Об'єм 24г: **{vol_str}**")
 
-    # 3. ЕДИНІ АДАПТИВНІ НАЛАШТУВАННЯ ГРАФІКА ДЛЯ ВСІХ КАТЕГОРІЙ
+    # 3. ЄДИНІ АДАПТИВНІ НАЛАШТУВАННЯ ГРАФІКА ДЛЯ ВСІХ КАТЕГОРІЙ
     row1_col1, row1_col2 = st.columns(2)
     with row1_col1:
         selected_period = st.radio(
@@ -1002,7 +856,7 @@ def _render_market_dashboard_body(category: str, watchlist: list[str]) -> None:
             key=f"timeframe_{category}"
         )
     with row1_col2:
-        interval_options = CRYPTO_CHART_INTERVALS.get(selected_period, ["1д"]) if is_crypto_category else ["15хв", "1г", "1д"]
+        interval_options = CRYPTO_CHART_INTERVALS.get(selected_period, ["15хв", "1г", "1д"])
         selected_interval = st.selectbox("Інтервал", interval_options, key=f"interval_{category}")
 
     row2_col1, row2_col2 = st.columns(2)
@@ -1019,11 +873,14 @@ def _render_market_dashboard_body(category: str, watchlist: list[str]) -> None:
 
     row3_col1, row3_col2 = st.columns(2)
     with row3_col1:
-        chart_theme = st.radio(
+        if "chart_theme" not in st.session_state:
+            st.session_state["chart_theme"] = "Темна 🌙"
+        st.session_state["chart_theme"] = st.radio(
             "Тема графіка",
-            ("Темна", "Світла"),
+            ("Темна 🌙", "Світла ☀️"),
             horizontal=True,
-            key=f"chart_theme_{category}",
+            index=0 if st.session_state["chart_theme"] == "Темна 🌙" else 1,
+            key=f"theme_radio_{category}"
         )
     with row3_col2:
         vertical_scale = st.slider("Вертикальний масштаб", 0.3, 3.0, 1.0, 0.1, key=f"v_scale_{category}")
@@ -1080,14 +937,6 @@ def _render_market_dashboard_body(category: str, watchlist: list[str]) -> None:
         st.warning(f"Дані недоступні: {error}")
         points = st.session_state.get(points_key)
 
-    # Для крипти Twelve Data не дає volume взагалі (валютні пари) — тому
-    # тут довантажуємо РЕАЛЬНИЙ об'єм з CoinGecko і "домальовуємо" його
-    # до вже отриманих свічок за міткою часу, замість орієнтовної оцінки.
-    if points and is_crypto_category:
-        crypto_id = dict(cryptos).get(selected_asset)
-        if crypto_id:
-            points = attach_real_crypto_volume(points, crypto_id, selected_days)
-
     if points:
         render_price_chart(
             points,
@@ -1096,7 +945,6 @@ def _render_market_dashboard_body(category: str, watchlist: list[str]) -> None:
             key=f"chart_{category}_{selected_asset}_{selected_period}_{selected_interval}",
             interaction_mode="Pan (вільно)",
             vertical_scale=vertical_scale,
-            theme=chart_theme,
         )
 
 
@@ -1117,14 +965,10 @@ def _market_dashboard_paused(category: str, watchlist: list[str]) -> None:
     _render_market_dashboard_body(category, watchlist)
 
 
-def render_market_dashboard(category: str, watchlist: list[str], force_paused: bool = False) -> None:
+def render_market_dashboard(category: str, watchlist: list[str]) -> None:
     if category not in ("Фінанси", "Криптовалюти", "Ілон Маск / компанії"):
         return
-    # force_paused=True вимикає авто-оновлення (30s фрагмент) під час аналізу
-    # статей LLM: фонове оновлення ринку посеред довгого циклу аналізу може
-    # спричиняти передчасний перерендер сторінки, через що готовий текст
-    # аналізу "губиться" і з'являється лише після наступного кліку.
-    paused = force_paused or st.session_state.get("market_autorefresh_paused", False)
+    paused = st.session_state.get("market_autorefresh_paused", False)
     if paused:
         _market_dashboard_paused(category, watchlist)
     else:
@@ -1496,8 +1340,19 @@ with st.sidebar:
             st.markdown(f"[{article['title']}]({article['link']})")
             st.caption(f"{article['source']} · {article['saved_at']}")
 
-category = st.radio("Категорія", tuple(CATEGORIES), horizontal=True)
+# Функція скидання старого результату
+def reset_analysis():
+    st.session_state.clear()  # Миттєво повністю очищає пам'ять додатка при зміні категорії
+
+category = st.radio(
+    "Категорія", 
+    tuple(CATEGORIES), 
+    horizontal=True, 
+    on_change=reset_analysis
+)
+
 config = CATEGORIES[category]
+
 
 top_left, top_right = st.columns((2, 1))
 with top_left:
@@ -1515,12 +1370,10 @@ if hours is None:
 
 watchlist = [item.strip() for item in watchlist_text.split(",") if item.strip()]
 
-def render_top(result, force_paused: bool = False):
+def render_top(result):
     """Малює блок статей і ринковий дашборд. Викликається одразу після
     збору статей (аналіз ще не готовий) і повторно на звичайних rerun'ах
-    (перемикання активу тощо) — з result, узятого із session_state.
-    force_paused=True — під час фонового аналізу LLM, щоб авто-оновлення
-    ринку не заважало відображенню готового тексту аналізу."""
+    (перемикання активу тощо) — з result, узятого із session_state."""
     r_category = result["category"]
     r_articles = result["all_articles"]
 
@@ -1561,39 +1414,18 @@ def render_top(result, force_paused: bool = False):
                     st.write(f"«{article['title'][:70]}» → {article['link']}")
                     shown += 1
 
-    # Обгортка з key дає стабільний CSS-клас (.st-key-category_content_wrap)
-    # для ринкового дашборду + рядка статей/аналізу разом. У категоріях з
-    # дашбордом (крипто/акції/Маск) він дуже довгий (метрики, слайдери,
-    # графік) — раніше аналіз піднімався лише ВСЕРЕДИНІ своєї трійки
-    # колонок, але сама трійка йшла ПІСЛЯ всього дашборду, тож на телефоні
-    # до аналізу все одно треба було довго гортати. Тепер на мобільному
-    # весь цей блок стає flex-column, і аналіз піднімається над дашбордом
-    # цілком (order:-1 нижче в CSS).
-    with st.container(key="category_content_wrap"):
-        with st.container(key="market_dashboard_slot"):
-            render_market_dashboard(r_category, result["watchlist"], force_paused=force_paused)
+    render_market_dashboard(r_category, result["watchlist"])
 
-        # Обгортка з key дає стабільний CSS-клас (.st-key-articles_analysis_row)
-        # для батьківського flex-блоку колонок — щоб у мобільному CSS можна було
-        # переставити порядок колонок через простий :nth-child, БЕЗ :has(),
-        # який підтримують не всі мобільні браузери/вебв'ю (це й було причиною,
-        # чому раніше блок аналізу "іноді" все одно лишався затиснутим).
-        with st.container(key="articles_analysis_row"):
-            left_articles, analysis_col_outer, right_articles = st.columns((1.6, 2, 1.6), gap="large")
-            with left_articles:
-                st.subheader(f"📚 Статті ({len(r_articles[::2])})")
-                for index, article in enumerate(r_articles[::2]):
-                    render_article_card(article, r_category, f"left_{index}_{article['link']}")
+    left_articles, analysis_column, right_articles = st.columns((1.6, 2, 1.6), gap="large")
+    with left_articles:
+        st.subheader(f"📚 Статті ({len(r_articles[::2])})")
+        for index, article in enumerate(r_articles[::2]):
+            render_article_card(article, r_category, f"left_{index}_{article['link']}")
 
-            with analysis_col_outer:
-                # key дає стабільний CSS-клас (.st-key-analysis_priority_block)
-                # для самого блоку аналізу — рамка на мобільному.
-                analysis_column = st.container(key="analysis_priority_block")
-
-        with right_articles:
-            st.subheader(f"📚 Статті ({len(r_articles[1::2])})")
-            for index, article in enumerate(r_articles[1::2]):
-                render_article_card(article, r_category, f"right_{index}_{article['link']}")
+    with right_articles:
+        st.subheader(f"📚 Статті ({len(r_articles[1::2])})")
+        for index, article in enumerate(r_articles[1::2]):
+            render_article_card(article, r_category, f"right_{index}_{article['link']}")
 
     return analysis_column
 
@@ -1643,7 +1475,7 @@ def render_analysis(container, result):
 
             st.markdown(result["analysis_text"])
             if r_category in ("Фінанси", "Криптовалюти"):
-                st.info("Це аналіз новин, а не інвестиційна порада.")
+                st.caption("Це аналіз новин, а не інвестиційна порада.", key=f"disclaimer_{category}")
         else:
             # Якщо під час обробки передано поточну модель, показуємо її
             current_provider = result.get("current_provider")
@@ -1693,7 +1525,7 @@ if run_analysis:
         "analysis_attempts": [],
         "text_diagnostics": [],
     }
-    analysis_column = render_top(st.session_state["result"], force_paused=True)
+    analysis_column = render_top(st.session_state["result"])
     with analysis_column:
         analysis_placeholder = st.empty()
     render_analysis(analysis_placeholder, st.session_state["result"])
@@ -1766,7 +1598,6 @@ if run_analysis:
 4. Посилайся на джерела за назвою (наприклад, «за даними Reuters...», «як повідомляє Укрінформ...»).
 5. Дотримуйся чіткої, стислої та аналітичної мови. Кожен із 5 пунктів структури має бути обсягом 60–90 слів.
 6. Виводь ТІЛЬКИ готовий текст аналітичного звіту. Жодних приміток, вступів чи службових коментарів.
-7. КАТЕГОРИЧНО ЗАБОРОНЕНО додавати після звіту будь-яку самоперевірку, підсумок дотримання вимог, підрахунок слів, список використаних джерел окремим блоком чи мета-коментарі на кшталт "Length per section", "Sources referenced", "Structure:", "PERFECT", "Check range". Відповідь має закінчуватись останнім реченням пункту 5 і нічим більше.
 
 НАДАНИЙ НОВИННИЙ КОРПУС СТАТЕЙ:
 {raw_text}
@@ -1822,27 +1653,6 @@ if run_analysis:
             "413" in msg and "token" in msg
         )
 
-    def _strip_meta_tail(text: str) -> str:
-        """Страховка на випадок, якщо модель все ж таки дописала службову
-        самоперевірку після звіту (спостерігалось у gemini-3.6-flash) —
-        всупереч прямій забороні в промпті. Обрізаємо текст по першому
-        входженню характерних маркерів такого блоку."""
-        markers = [
-            "\nLength per section",
-            "\nSources referenced",
-            "\nStructure:",
-            "\nWord count",
-            "\n* Length per section",
-            "\n* Sources referenced",
-            "\n* Structure:",
-        ]
-        cut_at = len(text)
-        for marker in markers:
-            idx = text.find(marker)
-            if idx != -1:
-                cut_at = min(cut_at, idx)
-        return text[:cut_at].rstrip()
-
     analysis_text = None
     analysis_error = None
     analysis_meta = None  # який провайдер/модель/розмір реально спрацював
@@ -1892,17 +1702,14 @@ if run_analysis:
 
         providers = []
 
-        # 🔹 2. Актуальні моделі Gemini (станом на зараз).
-        # gemini-2.0-flash / gemini-2.0-flash-lite / gemini-1.5-flash-8b
-        # прибрано зі списку — Google вже вивів їх з експлуатації, тож
-        # кожна спроба аналізу спершу марно "билась" об ці мертві моделі
-        # (чекаючи таймаут/помилку), перш ніж дійти до робочих, — це і
-        # було однією з причин, чому результат довго не з'являвся.
+        # 🔹 2. Актуальні моделі Gemini
         gemini_models = [
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
             "gemini-3.6-flash",
             "gemini-3.5-flash-lite",
             "gemini-2.5-pro",
-            "gemini-2.5-flash",
+            "gemini-1.5-flash-8b",
         ]
 
         for i, key in enumerate(gemini_keys, 1):
@@ -1959,7 +1766,7 @@ if run_analysis:
         analysis_text = None
         analysis_meta = None
         analysis_error = None
-        current_diagnostics = text_diagnostics
+        current_diagnostics = locals().get("text_diagnostics", [])
 
         # 🔹 Перевірка 1: Чи знайшовся хоча б один провайдер
         if not providers:
@@ -1974,7 +1781,7 @@ if run_analysis:
             render_analysis(analysis_placeholder, st.session_state["result"])
 
         # 🔹 Перевірка 2: Чи є статті для аналізу
-        elif not articles_for_analysis:
+        elif not locals().get("articles_for_analysis"):
             analysis_error = "Список статей порожній або не сформований. Немає даних для аналізу."
             st.session_state["result"].update({
                 "analysis_text": None,
@@ -2021,7 +1828,7 @@ if run_analysis:
                             errors.append(f"Prompt Build Error: {p_err}")
                             break
 
-                        max_out_tokens = 2048 if provider["name"] == "Groq" else 3600
+                        max_out_tokens = 2048 if provider["name"] == "Groq" else 3000
                         temperature = 0.15  # 👈 Додай це тут
 
                         analysis_placeholder.info(
@@ -2058,8 +1865,6 @@ if run_analysis:
                             if not current_text:
                                 raise RuntimeError("Модель повернула порожню відповідь (0 символів)")
 
-                            current_text = _strip_meta_tail(current_text)
-
                             analysis_text = current_text
                             analysis_error = None
                             analysis_meta = {
@@ -2094,28 +1899,30 @@ if run_analysis:
             if analysis_text is None and errors:
                 analysis_error = " | ".join(errors)
 
-    # Фінальне оновлення стану
+# 1. Фінальне збереження результатів у session_state
     st.session_state["result"].update({
         "analysis_text": analysis_text,
         "analysis_error": analysis_error,
         "analysis_meta": analysis_meta,
         "analysis_attempts": errors if providers else [],
-        "text_diagnostics": current_diagnostics,
+        "text_diagnostics": text_diagnostics,
     })
 
+    # 2. Оновлення інтерфейсу в реальному часі
     render_text_diagnostics(st.session_state["result"]["text_diagnostics"])
     render_analysis(analysis_placeholder, st.session_state["result"])
 
-    # Аналіз повністю готовий і вже збережений у session_state. Форсуємо
-    # один чистий rerun: далі сторінка малюється простим і надійним шляхом
-    # (гілка "elif result in session_state" нижче) замість того, щоб
-    # покладатись на живе оновлення плейсхолдера посеред довгого циклу —
-    # саме це раніше іноді призводило до того, що готовий текст аналізу
-    # не з'являвся сам, поки користувач щось не натисне.
+    # 3. Перезапуск сторінки для фіксації стану
     st.rerun()
 
+# 📌 ЯКЩО АНАЛІЗ УЖЕ Є В ПАМ'ЯТІ ДЛЯ ПОТОЧНОЇ КАТЕГОРІЇ:
 elif "result" in st.session_state:
     result = st.session_state["result"]
-    analysis_column = render_top(result)
-    render_text_diagnostics(result.get("text_diagnostics", []))
-    render_analysis(analysis_column, result)
+    if result.get("category") == category:
+        analysis_column = render_top(result)
+        with analysis_column:
+            analysis_placeholder = st.empty()
+        render_text_diagnostics(result.get("text_diagnostics", []))
+        render_analysis(analysis_placeholder, result)
+    else:
+        st.session_state.pop("result", None)
