@@ -20,6 +20,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from dotenv import load_dotenv
 from openai import OpenAI
+import streamlit.components.v1 as components
 import pandas as pd
 from plotly.subplots import make_subplots
 
@@ -163,63 +164,291 @@ OUTPUTSIZE_MAP = {
 
 st.set_page_config(page_title="Аналітик новин", page_icon="📰", layout="wide")
 
-st.markdown(
-    """
-    <style>
-        footer {visibility: hidden;}
+# Тема інтерфейсу: значення зберігається у session_state["ui_theme"] (віджет у сайдбарі).
+# На початку скрипта Streamlit уже відновив значення з попереднього запуску.
+if "ui_theme" not in st.session_state:
+    st.session_state["ui_theme"] = "Світла"
 
-        /* Компактні відступи для мобільних пристроїв */
-        .block-container {
-            padding-top: 1rem !important;
-            padding-bottom: 1rem !important;
-            padding-left: 0.5rem !important;
-            padding-right: 0.5rem !important;
-            max-width: 100% !important;
-        }
 
-        /* Забороняємо сторінці виходити за межі екрана телефона */
-        html, body, .stApp {
-            overflow-x: hidden !important;
-            max-width: 100vw !important;
-        }
+def apply_theme_css() -> None:
+    """Повні стилі для світлої та темної теми + руді акценти."""
+    dark = st.session_state.get("ui_theme") == "Темна"
 
-        /* Обмежуємо переповнення в колонках та радіо-кнопках */
-        [data-testid="stHorizontalBlock"], [data-testid="stRadio"] {
-            max-width: 100% !important;
-            overflow-x: hidden !important;
-        }
+    if dark:
+        text, muted = "#e2e8f0", "#94a3b8"
+        border, surface, surface2 = "#334155", "#1e293b", "#0f172a"
+        app_bg = "linear-gradient(180deg, #0b1220 0%, #0f172a 420px)"
+        hero_bg, hero_title = "#1e293b", "#f8fafc"
+        radio_bg, radio_lab = "#0f172a", "#94a3b8"
+        radio_hover, radio_on = "#1e293b", "#1e293b"
+        radio_border_on, radio_color_on = "#fb923c", "#fdba74"
+        input_bg, input_border, input_label = "#0f172a", "#475569", "#cbd5e1"
+        btn_bg, btn_color, btn_border = "#1e293b", "#e2e8f0", "#475569"
+        sidebar_bg = "#0f172a"
+        metric_label = "#94a3b8"
+        md_color = "#e2e8f0"
+        expander_summary = "#e2e8f0"
+    else:
+        text, muted = "#172033", "#64748b"
+        border, surface, surface2 = "#e2e8f0", "#ffffff", "#f8fafc"
+        app_bg = "linear-gradient(180deg, #f8fafc 0%, #ffffff 430px)"
+        hero_bg, hero_title = "rgba(255,255,255,.95)", "#111827"
+        radio_bg, radio_lab = "#f1f5f9", "#64748b"
+        radio_hover, radio_on = "#ffffff", "#ffffff"
+        radio_border_on, radio_color_on = "#fdba74", "#c2410c"
+        input_bg, input_border, input_label = "#ffffff", "#dbe3ee", "#475569"
+        btn_bg, btn_color, btn_border = "#ffffff", "#334155", "#dbe3ee"
+        sidebar_bg = "#f8fafc"
+        metric_label = "#64748b"
+        md_color = "#172033"
+        expander_summary = "#172033"
 
-        /* Автоперенос довгих слів та посилань для всього блоку аналізу */
-        .stMarkdown, div[data-testid="stText"], [data-testid="stMarkdownContainer"] {
-            word-break: break-word !important;
-            white-space: pre-wrap !important;
-            overflow-wrap: break-word !important;
-        }
+    st.markdown(
+        f"""
+        <style>
+            :root {{
+                --text: {text};
+                --muted: {muted};
+                --border: {border};
+                --surface: {surface};
+                --surface-2: {surface2};
+                --accent: #ea580c;
+                --accent-2: #c2410c;
+            }}
 
-        /* Адаптація для екранів телефонів (до 768px) */
-        @media screen and (max-width: 768px) {
-            /* Перетворюємо всі горизонтальні колонки у вертикальний список */
-            [data-testid="column"] {
-                width: 100% !important;
-                flex: 1 1 100% !important;
-                min-width: 100% !important;
-            }
+            footer {{ visibility: hidden; }}
 
-            /* Збільшуємо кнопки, щоб зручно натискати пальцем */
-            .stButton > button {
-                width: 100% !important;
-                min-height: 44px !important;
-            }
+            .stApp {{
+                background: {app_bg} !important;
+                color: {text} !important;
+            }}
 
-            /* Зменшуємо шрифти заголовків для економії місця */
-            h1 { font-size: 1.5rem !important; }
-            h2 { font-size: 1.25rem !important; }
-            h3 { font-size: 1.1rem !important; }
-        }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+            .block-container {{
+                max-width: 1440px !important;
+                padding: 1.15rem 1.35rem 3rem !important;
+            }}
+
+            html, body, .stApp {{
+                overflow-x: hidden !important;
+                max-width: 100vw !important;
+            }}
+
+            /* Текст Streamlit */
+            .stMarkdown, .stMarkdown p, .stMarkdown li, .stMarkdown span,
+            [data-testid="stMarkdownContainer"], [data-testid="stMarkdownContainer"] p,
+            [data-testid="stCaption"], label, .stText {{
+                color: {md_color} !important;
+            }}
+            h1, h2, h3, h4 {{
+                color: {hero_title} !important;
+            }}
+
+            /* Шапка */
+            .app-hero {{
+                background: {hero_bg} !important;
+                border: 1px solid {border} !important;
+                border-radius: 22px;
+                padding: 22px 26px;
+                margin-bottom: 18px;
+                box-shadow: 0 8px 28px rgba(0,0,0,.08);
+            }}
+            .app-hero-title {{
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                color: {hero_title} !important;
+                font-size: 30px;
+                font-weight: 800;
+                letter-spacing: -.7px;
+                line-height: 1.1;
+            }}
+            .app-hero-icon {{
+                width: 46px; height: 46px;
+                display: grid; place-items: center;
+                border-radius: 14px;
+                background: linear-gradient(135deg, #ea580c, #c2410c);
+                color: white;
+                font-size: 24px;
+                box-shadow: 0 8px 18px rgba(234,88,12,.25);
+            }}
+            .app-hero-sub {{
+                color: {muted} !important;
+                margin: 8px 0 0 58px;
+                font-size: 14px;
+            }}
+
+            /* Радіо (категорії) */
+            div[data-testid="stRadio"] > label {{
+                font-size: 12px !important;
+                font-weight: 800 !important;
+                color: {radio_lab} !important;
+                text-transform: uppercase;
+                letter-spacing: .08em;
+                margin-bottom: 7px !important;
+            }}
+            div[data-testid="stRadio"] > div[role="radiogroup"] {{
+                display: flex !important;
+                flex-wrap: wrap !important;
+                gap: 8px !important;
+                padding: 5px !important;
+                background: {radio_bg} !important;
+                border: 1px solid {border} !important;
+                border-radius: 16px;
+            }}
+            div[data-testid="stRadio"] > div[role="radiogroup"] label {{
+                margin: 0 !important;
+                padding: 10px 15px !important;
+                border-radius: 11px !important;
+                border: 1px solid transparent !important;
+                background: transparent !important;
+                color: {text} !important;
+                transition: all .18s ease !important;
+                cursor: pointer !important;
+            }}
+            div[data-testid="stRadio"] > div[role="radiogroup"] label:hover {{
+                background: {radio_hover} !important;
+                border-color: {border} !important;
+            }}
+            div[data-testid="stRadio"] > div[role="radiogroup"] label:has(input:checked) {{
+                background: {radio_on} !important;
+                border-color: {radio_border_on} !important;
+                box-shadow: 0 3px 10px rgba(234,88,12,.15) !important;
+                color: {radio_color_on} !important;
+            }}
+            div[data-testid="stRadio"] input {{
+                accent-color: #ea580c !important;
+            }}
+
+            /* Поля */
+            .stTextInput > label, .stSelectbox > label, .stSlider > label, .stTextArea > label {{
+                color: {input_label} !important;
+                font-size: 12px !important;
+                font-weight: 750 !important;
+            }}
+            .stTextInput input, .stSelectbox [data-baseweb="select"] > div, .stTextArea textarea {{
+                border-radius: 12px !important;
+                border: 1px solid {input_border} !important;
+                min-height: 43px !important;
+                background: {input_bg} !important;
+                color: {text} !important;
+            }}
+            .stTextInput input:focus {{
+                border-color: #fb923c !important;
+                box-shadow: 0 0 0 3px rgba(234,88,12,.18) !important;
+            }}
+
+            /* Кнопки — рудий акцент */
+            .stButton > button {{
+                border-radius: 12px !important;
+                min-height: 43px !important;
+                font-weight: 700 !important;
+                border: 1px solid {btn_border} !important;
+                background: {btn_bg} !important;
+                color: {btn_color} !important;
+                transition: transform .16s ease, box-shadow .16s ease !important;
+            }}
+            .stButton > button:hover {{
+                transform: translateY(-1px);
+                border-color: #fb923c !important;
+                box-shadow: 0 6px 16px rgba(234,88,12,.15) !important;
+            }}
+            .stButton > button[kind="primary"] {{
+                background: linear-gradient(135deg, #ea580c, #c2410c) !important;
+                border: none !important;
+                color: white !important;
+                min-height: 48px !important;
+                box-shadow: 0 9px 22px rgba(234,88,12,.28) !important;
+            }}
+            .stButton > button[kind="primary"]:hover {{
+                box-shadow: 0 12px 28px rgba(234,88,12,.38) !important;
+            }}
+
+            /* Expander / картки */
+            [data-testid="stExpander"] {{
+                border: 1px solid {border} !important;
+                border-radius: 16px !important;
+                background: {surface} !important;
+                box-shadow: 0 4px 16px rgba(0,0,0,.06) !important;
+                overflow: hidden;
+            }}
+            [data-testid="stExpander"] summary {{
+                font-weight: 700 !important;
+                color: {expander_summary} !important;
+            }}
+            .section-title {{
+                font-size: 17px;
+                font-weight: 800;
+                color: {hero_title} !important;
+                margin: 8px 0 10px;
+            }}
+            .section-title span {{
+                color: {muted};
+                font-size: 12px;
+                font-weight: 700;
+                margin-left: 5px;
+            }}
+
+            /* Sidebar */
+            [data-testid="stSidebar"] {{
+                background: {sidebar_bg} !important;
+                border-right: 1px solid {border} !important;
+            }}
+            [data-testid="stSidebar"] .stTextArea textarea {{
+                border-radius: 12px !important;
+                background: {input_bg} !important;
+                color: {text} !important;
+            }}
+            [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {{
+                color: {text} !important;
+            }}
+
+            /* Метрики */
+            [data-testid="stMetricLabel"] {{ color: {metric_label} !important; }}
+            [data-testid="stMetricValue"] {{ color: {hero_title} !important; }}
+
+            /* Алерти / info */
+            [data-testid="stAlert"] {{
+                background: {surface} !important;
+                color: {text} !important;
+                border: 1px solid {border} !important;
+            }}
+
+            /* Автоперенос */
+            .stMarkdown, div[data-testid="stText"], [data-testid="stMarkdownContainer"] {{
+                word-break: break-word !important;
+                overflow-wrap: break-word !important;
+            }}
+
+            iframe {{ max-width: 100% !important; }}
+
+            @media screen and (max-width: 768px) {{
+                .block-container {{ padding: .65rem .55rem 2rem !important; }}
+                .app-hero {{ padding: 17px 15px; border-radius: 17px; }}
+                .app-hero-title {{ font-size: 23px; }}
+                .app-hero-icon {{ width: 40px; height: 40px; font-size: 20px; }}
+                .app-hero-sub {{ margin-left: 0; font-size: 12px; }}
+                div[data-testid="stRadio"] > div[role="radiogroup"] label {{
+                    flex: 1 1 calc(50% - 8px);
+                    text-align: center;
+                    padding: 10px 7px !important;
+                }}
+                [data-testid="column"] {{
+                    width: 100% !important;
+                    flex: 1 1 100% !important;
+                    min-width: 100% !important;
+                }}
+                .stButton > button {{ width: 100% !important; min-height: 45px !important; }}
+                h1 {{ font-size: 1.5rem !important; }}
+                h2 {{ font-size: 1.25rem !important; }}
+                h3 {{ font-size: 1.1rem !important; }}
+            }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+apply_theme_css()
 
 
 def _news_locale(domain: str) -> tuple[str, str, str]:
@@ -381,20 +610,119 @@ from plotly.subplots import make_subplots
 import pandas as pd
 import streamlit as st
 
+# 2. Чиста функція віджета TradingView (приймає готові параметри)
+def render_tradingview_widget(
+    symbol: str, 
+    theme: str = "dark", 
+    interval: str = "D", 
+    chart_style: str = "1", 
+    height: int = 500
+) -> None:
+    """Рендеринг інтерактивного віджета TradingView з урахуванням налаштувань користувача."""
+    formatted_symbol = symbol.upper()
+    
+    # Автододавання USD для основних криптовалют, якщо префікс відсутній
+    if formatted_symbol in ("BTC", "ETH", "SOL", "XRP", "DOGE", "ADA"):
+        formatted_symbol += "USD"
 
+    html_code = f"""
+    <div class="tradingview-widget-container" style="height:{height}px; width:100%;">
+      <div id="tradingview_widget_element" style="height:100%; width:100%;"></div>
+      <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+      <script type="text/javascript">
+      new TradingView.widget({{
+          "autosize": true,
+          "symbol": "{formatted_symbol}",
+          "interval": "{interval}",
+          "timezone": "Etc/UTC",
+          "theme": "{theme}",
+          "style": "{chart_style}",
+          "locale": "uk",
+          "toolbar_bg": "#f1f3f6",
+          "enable_publishing": false,
+          "allow_symbol_change": true,
+          "save_image": false,
+          "container_id": "tradingview_widget_element"
+      }});
+      </script>
+    </div>
+    """
+    components.html(html_code, height=height)
+
+
+# 3. Головна функція для обробки UI-параметрів та рендерингу
+def render_price_chart(
+    ticker_symbol: str, 
+    selected_interval: str = "1д", 
+    chart_type: str = "Свічковий", 
+    is_dark: bool = True
+) -> None:
+    # Мапінг значень Streamlit UI у формат TradingView
+    STYLE_MAP = {"Свічковий": "1", "Лінійний": "2"}
+    INTERVAL_TV_MAP = {
+        "1хв": "1", "5хв": "5", "15хв": "15", "30хв": "30",
+        "1г": "60", "4г": "240", "1д": "D"
+    }
+
+    tv_interval = INTERVAL_TV_MAP.get(selected_interval, "D")
+    tv_style = STYLE_MAP.get(chart_type, "1")
+    theme_mode = "dark" if is_dark else "light"
+
+    # Рендеринг графіку
+    render_tradingview_widget(
+        symbol=ticker_symbol, 
+        theme=theme_mode, 
+        interval=tv_interval, 
+        chart_style=tv_style
+    )
+
+# ==========================================
+# 2. Головна функція рендерингу графіка та метрик
+# ==========================================
 def render_price_chart(
     points: list[dict],
     title: str,
     chart_type: str,
     key: str,
+    ticker_symbol: str = "BTC",
+    selected_interval: str = "1д",
     interaction_mode: str = "Pan (вільно)",
     vertical_scale: float = 1.0,
 ) -> None:
-    """Чистий професійний графік TradingView з підтримкою об'ємів для Акцій та Крипти"""
-    is_dark = st.session_state.get("chart_theme", "Темна 🌙") == "Темна 🌙"
+    """Чистий професійний графік TradingView з підтримкою об'ємів та метрик."""
     
-    rows = []
+    # 1. Визначення теми та тікера
+    is_dark = st.session_state.get("chart_theme", "Темна 🌙") == "Темна 🌙"
+    theme_mode = "dark" if is_dark else "light"
 
+    # Якщо у key передано конкретний тікер — витягуємо його
+    key_parts = key.split("_")
+    if len(key_parts) > 2:
+        ticker_symbol = key_parts[2]
+
+    # 2. Мапінг значень UI у формат TradingView
+    STYLE_MAP = {"Свічковий": "1", "Лінійний": "2"}
+    INTERVAL_TV_MAP = {
+        "1хв": "1", "5хв": "5", "15хв": "15", "30хв": "30",
+        "1г": "60", "4г": "240", "1д": "D"
+    }
+
+    tv_interval = INTERVAL_TV_MAP.get(selected_interval, "D")
+    tv_style = STYLE_MAP.get(chart_type, "1")
+
+    # 3. Виведення заголовка та віджета TradingView (лише 1 раз)
+    if title:
+        st.markdown(f"### {title}")
+
+    render_tradingview_widget(
+        symbol=ticker_symbol, 
+        theme=theme_mode, 
+        interval=tv_interval, 
+        chart_style=tv_style
+    )
+
+    # 4. Обробка точок для розрахунку текстових метрик
+    rows = []
     for point in points:
         quote = point.get("quote", {}).get("USD", point)
         close = quote.get("close") or quote.get("price")
@@ -449,7 +777,6 @@ def render_price_chart(
             else:
                 date_value = str(raw_date)
 
-        # 🎯 ВИПРАВЛЕНО: Гнучкий пошук об'єму для CoinMarketCap та TwelveData
         volume_value = (
             quote.get("volume")
             or point.get("volume")
@@ -477,251 +804,20 @@ def render_price_chart(
         })
 
     if not rows:
-        st.warning("Недостатньо даних для побудови графіка")
+        st.warning("Недостатньо даних для аналізу")
         return
 
     df = pd.DataFrame(rows)
     df["date"] = pd.to_datetime(df["date"], utc=True, errors="coerce")
     df = df.sort_values("date").dropna(subset=["date"])
+    
     if df.empty:
-        st.warning(
-            "Недостатньо коректних часових міток для побудови графіка"
-        )
+        st.warning("Недостатньо коректних часових міток для аналізу")
         return
 
-    dates = df["date"]
-    opens = df["open"].tolist()
-    highs = df["high"].tolist()
-    lows = df["low"].tolist()
     closes = df["close"].tolist()
-    # Перевіряємо та підтягуємо об'єм
-    volumes = []
-    for _, row in df.iterrows():
-        v = row.get("volume")
-        # Якщо API Twelve Data не дає об'єм для крипти (або повертає 0/NaN)
-        if v is None or pd.isna(v) or float(v) == 0:
-            # Вираховуємо умовний об'єм на основі амплітуди свічки (High - Low)
-            spread = abs(row["high"] - row["low"])
-            fake_vol = (
-                spread * row["close"] * 10
-                if spread > 0
-                else row["close"] * 0.1
-            )
-            volumes.append(fake_vol)
-        else:
-            volumes.append(float(v))
 
-    df["volume"] = volumes
-    has_volume_data = any(v > 0 for v in volumes)
-
-    # Перевіряємо, чи є реальні дані об'єму в масиві
-    has_volume_data = any(v > 0 for v in volumes)
-
-    # Якщо об'єму немає взагалі, робимо 1 ряд, якщо є — ділимо 75% / 25%
-    if has_volume_data:
-        fig = make_subplots(
-            rows=2,
-            cols=1,
-            shared_xaxes=True,
-            row_heights=[0.65, 0.45],
-            vertical_spacing=0.03,
-        )
-    else:
-        fig = make_subplots(rows=1, cols=1)
-
-    if chart_type == "Свічковий":
-        fig.add_trace(
-            go.Candlestick(
-                x=dates,
-                open=opens,
-                high=highs,
-                low=lows,
-                close=closes,
-                name="Ціна",
-                increasing_line_color="#26a69a",
-                decreasing_line_color="#ef5350",
-                line_width=1,
-                whiskerwidth=0.5,
-            ),
-            row=1,
-            col=1,
-        )
-
-        fig.add_trace(
-            go.Scatter(
-                x=dates,
-                y=closes,
-                mode="lines",
-                name="Лінія ціни",
-                line=dict(color="#FFFFFF", width=1.5),
-                hoverinfo="skip",
-            ),
-            row=1,
-            col=1,
-        )
-
-        ma7 = df["close"].rolling(window=min(7, len(df))).mean()
-        fig.add_trace(
-            go.Scatter(
-                x=dates,
-                y=ma7,
-                name="MA7",
-                line=dict(color="#2962FF", width=1.5),
-                opacity=0.7,
-                hoverinfo="skip",
-            ),
-            row=1,
-            col=1,
-        )
-    else:
-        fig.add_trace(
-            go.Scatter(
-                x=dates,
-                y=closes,
-                mode="lines",
-                name="Ціна",
-                line=dict(color="#2962FF", width=2.5),
-                fill="tozeroy",
-                fillcolor="rgba(41, 98, 255, 0.08)",
-                hovertemplate="%{y:$,.2f}<br>%{x|%Y-%m-%d %H:%M}",
-            ),
-            row=1,
-            col=1,
-        )
-
-    # 📊 Малювання стовпчиків об'єму для Крипти / Акцій
-    if has_volume_data:
-        if is_dark:
-            # На темному тлі: ультра-світлі та ультра-яскраві неонові кольори
-            volume_colors = [
-                "#80FF80" if c >= o else "#FF8099" for o, c in zip(opens, closes)
-            ]
-            vol_opacity = 1.0
-        else:
-            # На світлому тлі: дуже темний насичений смарагдовий та темний бордовий
-            volume_colors = [
-                "#004D40" if c >= o else "#880E4F" for o, c in zip(opens, closes)
-            ]
-            vol_opacity = 0.90
-
-        fig.add_trace(
-            go.Bar(
-                x=dates,
-                y=volumes,
-                marker_color=volume_colors,
-                name="Обʼєм",
-                opacity=vol_opacity,
-                showlegend=False,
-            ),
-            row=2,
-            col=1,
-        )
-        fig.update_yaxes(
-            title_text="Обʼєм", row=2, col=1, tickfont=dict(color="#787b86")
-        )
-
-    if title:
-        st.markdown(f"### {title}")
-
-    layout_dragmode = "pan"
-    layout_height = max(280, min(800, int(400 * float(vertical_scale))))
-
-    is_dark = st.session_state.get("chart_theme", "Темна 🌙") == "Темна 🌙"
-
-    # Динамічні кольори для графіків
-    bg_color = "#181c27" if is_dark else "#ffffff"
-    grid_color = "#2a2e39" if is_dark else "#e1e3eb"
-    text_color = "#d1d4dc" if is_dark else "#131722"
-    up_color = "#089981"  # Зелені свічки
-    down_color = "#f23645"  # Червоні свічки
-
-    fig.update_layout(
-        uirevision=key,
-        dragmode=layout_dragmode,
-        height=layout_height,
-        margin=dict(l=5, r=5, t=25, b=5),
-        template="plotly_dark" if is_dark else "plotly_white",
-        paper_bgcolor=bg_color,
-        plot_bgcolor=bg_color,
-        font=dict(color=text_color, size=10),
-        xaxis=dict(
-            showgrid=True,
-            gridcolor=grid_color,
-            gridwidth=0.5,
-            zeroline=False,
-            showline=True,
-            linecolor=grid_color,
-            linewidth=1,
-            tickfont=dict(color=text_color, size=9),
-            type="date",
-            rangeslider=dict(visible=False),
-            rangeselector=dict(visible=False),
-        ),
-        yaxis=dict(
-            showgrid=True,
-            gridcolor=grid_color,
-            gridwidth=0.5,
-            zeroline=False,
-            showline=True,
-            linecolor=grid_color,
-            linewidth=1,
-            tickfont=dict(color=text_color, size=9),
-            tickprefix="$",
-        ),
-        showlegend=True,
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.01,
-            xanchor="left",
-            x=0,
-            bgcolor="rgba(0, 0, 0, 0)",
-            font=dict(color=text_color, size=9),
-        ),
-        hovermode="x unified",
-        hoverlabel=dict(
-            bgcolor=bg_color, font_size=11, font_color=text_color
-        ),
-    )
-
-    if has_volume_data:
-        fig.update_layout(
-            yaxis2=dict(
-                showgrid=True,
-                gridcolor="#2a2e39",
-                gridwidth=0.5,
-                zeroline=False,
-                showline=True,
-                linecolor="#2a2e39",
-                linewidth=1,
-                tickfont=dict(color="#787b86", size=9),
-            )
-        )
-
-    if closes:
-        last_price = closes[-1]
-        fig.add_hline(
-            y=last_price,
-            line_dash="dash",
-            line_color="#787b86",
-            opacity=0.5,
-            line_width=1,
-            annotation_text=f"{last_price:.2f}",
-            annotation_position="bottom right",
-            annotation_font_color="#787b86",
-        )
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True,
-        key=f"plotly_{key}",
-        config={
-            "displayModeBar": True,
-            "scrollZoom": True,
-            "responsive": True,
-        },
-    )
-
+    # 5. Відображення 4 метрик під графіком
     if closes:
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -739,6 +835,9 @@ def render_price_chart(
         with col4:
             avg = sum(closes) / len(closes)
             st.metric("Середня", f"${avg:,.2f}")
+        
+
+
 
 
 
@@ -757,39 +856,27 @@ def _render_market_dashboard_body(category: str, watchlist: list[str]) -> None:
         st.session_state["market_last_refresh"] = now_ts
         st.session_state["market_next_refresh"] = now_ts + MARKET_REFRESH_SECONDS
 
-    seconds_until_update = max(0, int(st.session_state["market_next_refresh"] - now_ts))
-
-    st.subheader("📈 Ринок")
-    
-    timer_id = f"market_timer_{int(now_ts * 1000)}"
-    timer_html = f"""
-    <div style='display:flex; align-items:center; gap:10px;'>
-        <div style='padding:4px 8px; border-radius:8px; background:#f4f5f7; color:#1f2a3b; font-size:12px; text-align:center; border:1px solid #d8dde6; min-width:90px;'>
-            ⏱ <strong id='{timer_id}'>{seconds_until_update}</strong> сек.
-        </div>
-    </div>
-    <script>
-    (function() {{
-            const deadline = {int(st.session_state['market_next_refresh'] * 1000)};
-            const output = document.getElementById('{timer_id}');
-            if (!output) return;
-            function tick() {{
-                    const diff = Math.max(0, deadline - Date.now());
-                    output.innerText = Math.ceil(diff / 1000);
-            }}
-            tick();
-            setInterval(tick, 1000);
-    }})();
-    </script>
-    """
     st.session_state["market_refresh_seconds"] = MARKET_REFRESH_SECONDS
 
-    # 1. Визначаємо тип активів залежно від категорії
-    is_crypto_category = (category == "Криптовалюти")
-    
-    # 2. Отримуємо метрики цін
-    asset_data = []  # [(symbol, display_price, change, extra_id)]
-    
+    chart_visible_key = f"tv_chart_visible_{category}"
+    if chart_visible_key not in st.session_state:
+        st.session_state[chart_visible_key] = True
+
+    head_l, head_r = st.columns([4, 1])
+    with head_l:
+        st.markdown("### 📈 Ринок")
+    with head_r:
+        if st.button(
+            "📉 Приховати графік" if st.session_state[chart_visible_key] else "📊 Показати графік",
+            key=f"toggle_tv_{category}",
+            use_container_width=True,
+        ):
+            st.session_state[chart_visible_key] = not st.session_state[chart_visible_key]
+            st.rerun()
+
+    is_crypto_category = category == "Криптовалюти"
+    asset_data = []
+
     if is_crypto_category:
         if not COINMARKETCAP_API_KEY:
             st.info("Для криптоцін додайте COINMARKETCAP_API_KEY у .env.")
@@ -805,10 +892,13 @@ def _render_market_dashboard_body(category: str, watchlist: list[str]) -> None:
                     record = record[0] if record else None
                 if record:
                     usd = record["quote"]["USD"]
-                    price = usd["price"]
-                    change = float(usd.get('percent_change_24h') or 0)
-                    volume = float(usd.get('volume_24h') or 0)  # <-- Отримуємо об'єм
-                    asset_data.append((symbol, price, change, volume, crypto_id))
+                    asset_data.append((
+                        symbol,
+                        usd["price"],
+                        float(usd.get("percent_change_24h") or 0),
+                        float(usd.get("volume_24h") or 0),
+                        crypto_id,
+                    ))
         except RuntimeError as error:
             st.warning(f"Дані CoinMarketCap недоступні: {error}")
             return
@@ -827,24 +917,19 @@ def _render_market_dashboard_body(category: str, watchlist: list[str]) -> None:
                 change = quote.get("percent_change")
                 if change is None and current and previous:
                     change = (float(current) / float(previous) - 1) * 100
-                asset_data.append((symbol, current, float(change or 0), None))
+                asset_data.append((symbol, current, float(change or 0), None, None))
             except RuntimeError as error:
                 st.warning(f"{symbol}: {error}")
 
     if not asset_data:
         return
 
-    # Відображення карток метрик
-    # Відображення карток метрик (підтримує і акції, і крипту з об'ємом)
     columns = st.columns(min(4, len(asset_data)))
     for column, item in zip(columns, asset_data):
-        symbol, price, change = item[0], item[1], item[2]
-        volume = item[3] if len(item) > 4 else None  # Для крипти є 4-й елемент volume
-        
+        symbol, price, change, volume, _ = item
         with column:
             st.metric(symbol, format_usd(price), f"{change:+.2f}% за день")
-            if volume:
-                # Форматування великих чисел об'єму (Мільйони/Мільярди)
+            if volume is not None:
                 if volume >= 1e9:
                     vol_str = f"${volume / 1e9:.2f}B"
                 elif volume >= 1e6:
@@ -853,33 +938,22 @@ def _render_market_dashboard_body(category: str, watchlist: list[str]) -> None:
                     vol_str = f"${volume:,.0f}"
                 st.caption(f"📊 Об'єм 24г: **{vol_str}**")
 
-    # 3. ЄДИНІ АДАПТИВНІ НАЛАШТУВАННЯ ГРАФІКА ДЛЯ ВСІХ КАТЕГОРІЙ
-    row1_col1, row1_col2 = st.columns(2)
-    with row1_col1:
-        selected_period = st.radio(
-            "Період",
-            ("1Д", "7Д", "30Д"),
-            horizontal=True,
-            key=f"timeframe_{category}"
-        )
-    with row1_col2:
-        interval_options = CRYPTO_CHART_INTERVALS.get(selected_period, ["15хв", "1г", "1д"])
-        selected_interval = st.selectbox("Інтервал", interval_options, key=f"interval_{category}")
-
-    row2_col1, row2_col2 = st.columns(2)
-    with row2_col1:
-        labels = [item[0] for item in asset_data]
-        selected_asset = st.selectbox("Актив", labels, key=f"chart_asset_{category}")
-    with row2_col2:
-        chart_type = st.radio(
-            "Тип",
-            ("Лінійний", "Свічковий"),
-            horizontal=True,
-            key=f"chart_type_{category}",
-        )
-
-    row3_col1, row3_col2 = st.columns(2)
-    with row3_col1:
+    with st.expander("⚙️ Налаштування графіка", expanded=False):
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            selected_period = st.radio(
+                "Період", ("1Д", "7Д", "30Д"), horizontal=True, key=f"timeframe_{category}"
+            )
+        with c2:
+            interval_options = CRYPTO_CHART_INTERVALS.get(selected_period, ["15хв", "1г", "1д"])
+            selected_interval = st.selectbox("Інтервал", interval_options, key=f"interval_{category}")
+        with c3:
+            labels = [item[0] for item in asset_data]
+            selected_asset = st.selectbox("Актив", labels, key=f"chart_asset_{category}")
+        with c4:
+            chart_type = st.radio(
+                "Тип", ("Лінійний", "Свічковий"), horizontal=True, key=f"chart_type_{category}"
+            )
         if "chart_theme" not in st.session_state:
             st.session_state["chart_theme"] = "Темна 🌙"
         st.session_state["chart_theme"] = st.radio(
@@ -887,72 +961,68 @@ def _render_market_dashboard_body(category: str, watchlist: list[str]) -> None:
             ("Темна 🌙", "Світла ☀️"),
             horizontal=True,
             index=0 if st.session_state["chart_theme"] == "Темна 🌙" else 1,
-            key=f"theme_radio_{category}"
+            key=f"theme_radio_{category}",
         )
-    with row3_col2:
-        vertical_scale = st.slider("Вертикальний масштаб", 0.3, 3.0, 1.0, 0.1, key=f"v_scale_{category}")
 
-    # 4. Шапка графіка з кнопкою та таймером
-    with st.container(key=f"header_{category}"):
-        col_title, col_pause, col_timer, col_button = st.columns([2.4, 1.3, 1, 1], gap="small")
-        with col_title:
-            st.markdown(f"<h3 style='margin:0'>{selected_asset} · {selected_interval} · {selected_period}</h3>", unsafe_allow_html=True)
-        with col_pause:
-            st.toggle(
-                "⏸ Пауза",
-                key="market_autorefresh_paused",
-                on_change=_force_full_rerun,
-            )
-        with col_timer:
-            try:
-                components.html(timer_html, height=36, scrolling=False)
-            except Exception:
-                st.markdown("&nbsp;")
-        with col_button:
-            if st.button("Оновити", key=f"refresh_btn_{category}_{selected_asset}"):
-                twelve_history.clear()
-                cmc_history.clear()
-                cmc_quotes.clear()
-                twelve_quote.clear()
-                now_local = time.time()
-                st.session_state["market_last_refresh"] = now_local
-                st.session_state["market_next_refresh"] = now_local + MARKET_REFRESH_SECONDS
+    selected_period = st.session_state.get(f"timeframe_{category}", "1Д")
+    interval_options = CRYPTO_CHART_INTERVALS.get(selected_period, ["15хв", "1г", "1д"])
+    selected_interval = st.session_state.get(f"interval_{category}", interval_options[0])
+    labels = [item[0] for item in asset_data]
+    selected_asset = st.session_state.get(f"chart_asset_{category}", labels[0])
+    chart_type = st.session_state.get(f"chart_type_{category}", "Лінійний")
 
-    # 5. Отримання даних і побудова однаковим методом
+    col_title, col_pause, col_button = st.columns([2.6, 1.2, 1], gap="small")
+    with col_title:
+        st.markdown(
+            f"<h3 style='margin:0'>{selected_asset} · {selected_interval} · {selected_period}</h3>",
+            unsafe_allow_html=True,
+        )
+    with col_pause:
+        st.toggle("⏸ Пауза", key="market_autorefresh_paused", on_change=_force_full_rerun)
+    with col_button:
+        if st.button("Оновити", key=f"refresh_btn_{category}_{selected_asset}", use_container_width=True):
+            twelve_history.clear()
+            cmc_history.clear()
+            cmc_quotes.clear()
+            twelve_quote.clear()
+            now_local = time.time()
+            st.session_state["market_last_refresh"] = now_local
+            st.session_state["market_next_refresh"] = now_local + MARKET_REFRESH_SECONDS
+            st.rerun()
+
+    if not st.session_state.get(chart_visible_key, True):
+        st.caption("Графік приховано. Натисніть «Показати графік», щоб відкрити TradingView.")
+        return
+
     days_map = {"1Д": 1, "7Д": 7, "30Д": 30}
-    selected_days = days_map[selected_period]
+    selected_days = days_map.get(selected_period, 1)
     interval_code = INTERVAL_MAP.get(selected_interval, "1day")
     output_count = OUTPUTSIZE_MAP.get((selected_period, selected_interval), selected_days)
-
     points_key = f"points_{category}_{selected_asset}"
     points = None
-
     try:
-        # Для крипти додаємо /USD, для акцій використовуємо сам тікер
         symbol = f"{selected_asset}/USD" if is_crypto_category else selected_asset
-
-        # Беремо дані з того самого джерела Twelve Data
-        points = twelve_history(
-            TWELVE_DATA_API_KEY, 
-            symbol, 
-            count=output_count, 
-            interval=interval_code
-        )
-        
-        st.session_state[points_key] = points
+        if TWELVE_DATA_API_KEY:
+            points = twelve_history(
+                TWELVE_DATA_API_KEY, symbol, count=output_count, interval=interval_code
+            )
+            st.session_state[points_key] = points
+        else:
+            points = st.session_state.get(points_key) or []
     except RuntimeError as error:
-        st.warning(f"Дані недоступні: {error}")
+        st.warning(f"Дані історії недоступні: {error}")
         points = st.session_state.get(points_key)
 
-    if points:
-        render_price_chart(
-            points,
-            "",
-            chart_type,
-            key=f"chart_{category}_{selected_asset}_{selected_period}_{selected_interval}",
-            interaction_mode="Pan (вільно)",
-            vertical_scale=vertical_scale,
-        )
+    render_price_chart(
+        points or [],
+        "",
+        chart_type,
+        key=f"chart_{category}_{selected_asset}_{selected_period}_{selected_interval}",
+        ticker_symbol=selected_asset,
+        selected_interval=selected_interval,
+        interaction_mode="Pan (вільно)",
+        vertical_scale=1.0,
+    )
 
 
 def _force_full_rerun() -> None:
@@ -1329,11 +1399,29 @@ def render_article_card(article: dict, category: str, key: str) -> None:
 
 
 # --- ГОЛОВНИЙ ІНТЕРФЕЙС STREAMLIT ---
-st.title("📰 Персональний аналітик новин")
-st.caption("Оберіть тему — і отримайте новини, джерела та український аналіз без зайвого шуму.")
+st.markdown(
+    """
+    <div class="app-hero">
+        <div class="app-hero-title">
+            <div class="app-hero-icon">📰</div>
+            <div>Персональний аналітик новин</div>
+        </div>
+        <div class="app-hero-sub">Новини, джерела, ринкові дані та обґрунтований український аналіз — в одному робочому просторі.</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 with st.sidebar:
     st.header("⚙️ Мої налаштування")
+    st.radio(
+        "Тема інтерфейсу",
+        ("Світла", "Темна"),
+        horizontal=True,
+        key="ui_theme",
+        help="Світла або темна тема всього додатку",
+    )
+    # Після зміни теми CSS уже застосовано на цьому ж проході через session_state
     watchlist_text = st.text_area(
         "Мої активи та компанії",
         value="Tesla, Nvidia, Apple, Bitcoin, Ethereum, Solana",
@@ -1347,19 +1435,37 @@ with st.sidebar:
             st.markdown(f"[{article['title']}]({article['link']})")
             st.caption(f"{article['source']} · {article['saved_at']}")
 
-# Функція скидання старого результату
-def reset_analysis():
-    st.session_state.clear()  # Миттєво повністю очищає пам'ять додатка при зміні категорії
+# Результати зберігаються окремо для кожної категорії.
+if "results_by_category" not in st.session_state:
+    st.session_state["results_by_category"] = {}
 
+CATEGORY_ICONS = {
+    "Загальні новини": "📰",
+    "Війна": "⚔️",
+    "Фінанси": "💰",
+    "Криптовалюти": "₿",
+    "Технології": "💻",
+    "Ілон Маск / компанії": "🚀",
+}
+
+st.caption(
+    "Результати зберігаються для кожної категорії окремо — "
+    "після перемикання можна повернутися і переглянути їх без повторного збору."
+)
 category = st.radio(
-    "Категорія", 
-    tuple(CATEGORIES), 
-    horizontal=True, 
-    on_change=reset_analysis
+    "Категорія",
+    tuple(CATEGORIES),
+    horizontal=True,
+    format_func=lambda x: f"{CATEGORY_ICONS.get(x, '•')}  {x}",
+    key="main_category",
 )
 
 config = CATEGORIES[category]
 
+if category in st.session_state["results_by_category"]:
+    st.session_state["result"] = st.session_state["results_by_category"][category]
+elif "result" in st.session_state and st.session_state["result"].get("category") != category:
+    st.session_state.pop("result", None)
 
 top_left, top_right = st.columns((2, 1))
 with top_left:
@@ -1369,13 +1475,56 @@ with top_left:
         key=f"topic_{category}",
     )
 with top_right:
-    period = st.selectbox("Період", ("За 24 години", "За 7 днів", "За 30 днів", "Власний період"))
+    period = st.selectbox(
+        "Період",
+        ("За 24 години", "За 7 днів", "За 30 днів", "Власний період"),
+        key=f"period_{category}",
+    )
 
 hours = {"За 24 години": 24, "За 7 днів": 168, "За 30 днів": 720}.get(period)
 if hours is None:
-    hours = st.slider("Останні години", min_value=6, max_value=720, value=24, step=6)
+    hours = st.slider(
+        "Останні години", min_value=6, max_value=720, value=24, step=6, key=f"hours_{category}"
+    )
 
 watchlist = [item.strip() for item in watchlist_text.split(",") if item.strip()]
+
+# ===== Вибір джерел =====
+source_names = list(config["sources"].keys())
+sources_key = f"selected_sources_{category}"
+ms_key = f"multiselect_sources_{category}"
+if sources_key not in st.session_state:
+    st.session_state[sources_key] = source_names.copy()
+
+with st.expander("🔧 Вибір джерел", expanded=False):
+    filt_col1, filt_col2, _ = st.columns([1, 1, 4])
+    with filt_col1:
+        if st.button("Скинути", key=f"reset_sources_{category}", use_container_width=True):
+            st.session_state[sources_key] = []
+            st.session_state[ms_key] = []
+            st.rerun()
+    with filt_col2:
+        if st.button("Добавити всі", key=f"add_all_sources_{category}", use_container_width=True):
+            st.session_state[sources_key] = source_names.copy()
+            st.session_state[ms_key] = source_names.copy()
+            st.rerun()
+    if ms_key not in st.session_state:
+        st.session_state[ms_key] = list(st.session_state[sources_key])
+    selected_source_names = st.multiselect(
+        "Джерела для збору",
+        options=source_names,
+        key=ms_key,
+    )
+    st.session_state[sources_key] = selected_source_names
+
+active_sources = {
+    name: domain
+    for name, domain in config["sources"].items()
+    if name in st.session_state[sources_key]
+}
+if not active_sources:
+    active_sources = dict(config["sources"])
+
 
 def render_top(result):
     """Малює блок статей і ринковий дашборд. Викликається одразу після
@@ -1507,42 +1656,83 @@ def format_error_compact(err_text: str) -> str:
         return err_text[:120] + ("..." if len(err_text) > 120 else "")                
 
 
-st.caption(f"Джерела для категорії: {', '.join(config['sources'])}")
-run_analysis = st.button("🚀 Зібрати та проаналізувати", type="primary")
+st.markdown(
+    f'<div style="margin:12px 0 4px;color:#94a3b8;font-size:12px;font-weight:700;">ДЖЕРЕЛА · {len(active_sources)} / {len(config["sources"])} МЕДІА</div>',
+    unsafe_allow_html=True,
+)
+st.caption(" · ".join(active_sources))
 
-if run_analysis:
+btn_col1, btn_col2, btn_col3 = st.columns([1.4, 1, 1.2])
+with btn_col1:
+    run_full = st.button("🚀  Зібрати та проаналізувати", type="primary", use_container_width=True)
+with btn_col2:
+    run_update_articles = st.button("🔄  Оновити статті", use_container_width=True)
+with btn_col3:
+    has_articles = (
+        "result" in st.session_state
+        and st.session_state["result"].get("category") == category
+        and bool(st.session_state["result"].get("all_articles"))
+    )
+    run_regen_analysis = st.button(
+        "💬  Перегенерувати аналіз",
+        use_container_width=True,
+        disabled=not has_articles,
+    )
+
+do_collect = run_full or run_update_articles
+do_analyze = run_full or run_regen_analysis
+
+if do_collect:
     with st.spinner("🚀 Завантажую статті та фотографії у кілька потоків..."):
-        all_articles, problems = collect_articles(config["sources"], topic, hours)
+        all_articles, problems = collect_articles(active_sources, topic, hours)
 
     if not all_articles:
         st.session_state.pop("result", None)
+        st.session_state["results_by_category"].pop(category, None)
         st.error("Не знайдено жодної новини. Спробуйте уточнити або змінити тему.")
         st.stop()
 
-    # Одразу зберігаємо і малюємо статті — аналіз ще не готовий, але
-    # користувач вже може їх читати, поки LLM працює у фоні нижче.
+    prev = st.session_state.get("result") or {}
+    keep_analysis = run_update_articles and not run_full and prev.get("category") == category
+
     st.session_state["result"] = {
         "category": category,
         "watchlist": watchlist,
         "all_articles": all_articles,
         "problems": problems,
-        "analysis_text": None,
-        "analysis_error": None,
-        "analysis_meta": None,
-        "analysis_attempts": [],
-        "text_diagnostics": [],
+        "analysis_text": prev.get("analysis_text") if keep_analysis else None,
+        "analysis_error": prev.get("analysis_error") if keep_analysis else None,
+        "analysis_meta": prev.get("analysis_meta") if keep_analysis else None,
+        "analysis_attempts": prev.get("analysis_attempts", []) if keep_analysis else [],
+        "text_diagnostics": prev.get("text_diagnostics", []) if keep_analysis else [],
     }
-    analysis_column = render_top(st.session_state["result"])
+    st.session_state["results_by_category"][category] = st.session_state["result"]
+
+    if run_update_articles and not run_full:
+        analysis_column = render_top(st.session_state["result"])
+        with analysis_column:
+            analysis_placeholder = st.empty()
+        render_text_diagnostics(st.session_state["result"].get("text_diagnostics", []))
+        render_analysis(analysis_placeholder, st.session_state["result"])
+        st.rerun()
+
+if do_analyze:
+    if "result" not in st.session_state or not st.session_state["result"].get("all_articles"):
+        st.error("Спочатку зберіть статті кнопкою «Зібрати та проаналізувати» або «Оновити статті».")
+        st.stop()
+
+    result_ref = st.session_state["result"]
+    all_articles = result_ref["all_articles"]
+    result_ref["analysis_text"] = None
+    result_ref["analysis_error"] = None
+    result_ref["analysis_meta"] = None
+    result_ref["analysis_attempts"] = []
+
+    analysis_column = render_top(result_ref)
     with analysis_column:
         analysis_placeholder = st.empty()
-    render_analysis(analysis_placeholder, st.session_state["result"])
+    render_analysis(analysis_placeholder, result_ref)
 
-    # Обрізаємо кількість статей у промпті, щоб не впиратись у ліміт токенів
-    # на хвилину навіть після виправлення квоти ключа. Реальний запас під
-    # ліміт визначаємо адаптивно нижче (build_material_text + retry-цикл),
-    # тут беремо із запасом «зверху», а звужуємо вже за фактом відповіді
-    # сервера — точно передбачити кількість токенів наперед неможливо
-    # (токенізатор по-різному «важить» кирилицю й латиницю).
     MAX_ARTICLES_FOR_ANALYSIS = 12
     articles_for_analysis = all_articles[:MAX_ARTICLES_FOR_ANALYSIS]
 
@@ -1906,24 +2096,21 @@ if run_analysis:
             if analysis_text is None and errors:
                 analysis_error = " | ".join(errors)
 
-# 1. Фінальне збереження результатів у session_state
+# 1. Збереження аналізу (без st.rerun — інакше текст зникає з екрана)
     st.session_state["result"].update({
         "analysis_text": analysis_text,
         "analysis_error": analysis_error,
         "analysis_meta": analysis_meta,
-        "analysis_attempts": errors if providers else [],
+        "analysis_attempts": locals().get("errors") or [],
         "text_diagnostics": text_diagnostics,
     })
+    st.session_state["results_by_category"][category] = st.session_state["result"]
 
-    # 2. Оновлення інтерфейсу в реальному часі
-    render_text_diagnostics(st.session_state["result"]["text_diagnostics"])
+    render_text_diagnostics(st.session_state["result"].get("text_diagnostics", []))
     render_analysis(analysis_placeholder, st.session_state["result"])
 
-    # 3. Перезапуск сторінки для фіксації стану
-    st.rerun()
-
-# 📌 ЯКЩО АНАЛІЗ УЖЕ Є В ПАМ'ЯТІ ДЛЯ ПОТОЧНОЇ КАТЕГОРІЇ:
-elif "result" in st.session_state:
+# Якщо аналіз уже є в пам'яті для поточної категорії — показуємо без повторного збору
+elif not do_collect and not do_analyze and "result" in st.session_state:
     result = st.session_state["result"]
     if result.get("category") == category:
         analysis_column = render_top(result)
@@ -1931,5 +2118,3 @@ elif "result" in st.session_state:
             analysis_placeholder = st.empty()
         render_text_diagnostics(result.get("text_diagnostics", []))
         render_analysis(analysis_placeholder, result)
-    else:
-        st.session_state.pop("result", None)
