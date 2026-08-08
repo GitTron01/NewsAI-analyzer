@@ -164,291 +164,281 @@ OUTPUTSIZE_MAP = {
 
 st.set_page_config(page_title="Аналітик новин", page_icon="📰", layout="wide")
 
-# Тема інтерфейсу: значення зберігається у session_state["ui_theme"] (віджет у сайдбарі).
-# На початку скрипта Streamlit уже відновив значення з попереднього запуску.
+st.markdown(
+    """
+    <style>
+        :root {
+            --navy: #172554;
+            --blue: #2563eb;
+            --blue-soft: #eff6ff;
+            --text: #172033;
+            --muted: #64748b;
+            --border: #e2e8f0;
+            --surface: #ffffff;
+            --surface-2: #f8fafc;
+            --shadow: 0 8px 28px rgba(15, 23, 42, .07);
+        }
+
+        footer { visibility: hidden; }
+
+        .stApp {
+            background: linear-gradient(180deg, #f8fafc 0%, #ffffff 430px);
+            color: var(--text);
+        }
+
+        .block-container {
+            max-width: 1440px !important;
+            padding: 1.15rem 1.35rem 3rem !important;
+        }
+
+        html, body, .stApp {
+            overflow-x: hidden !important;
+            max-width: 100vw !important;
+        }
+
+        /* ===== Верхня шапка ===== */
+        .app-hero {
+            background: rgba(255,255,255,.92);
+            border: 1px solid var(--border);
+            border-radius: 22px;
+            padding: 22px 26px;
+            margin-bottom: 18px;
+            box-shadow: var(--shadow);
+        }
+        .app-hero-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: #111827;
+            font-size: 30px;
+            font-weight: 800;
+            letter-spacing: -.7px;
+            line-height: 1.1;
+        }
+        .app-hero-icon {
+            width: 46px; height: 46px;
+            display: grid; place-items: center;
+            border-radius: 14px;
+            background: linear-gradient(135deg, #ea580c, #c2410c);
+            color: white;
+            font-size: 24px;
+            box-shadow: 0 8px 18px rgba(234,88,12,.28);
+        }
+        .app-hero-sub {
+            color: var(--muted);
+            margin: 8px 0 0 58px;
+            font-size: 14px;
+        }
+
+        /* ===== Категорії ===== */
+        div[data-testid="stRadio"] > label {
+            font-size: 12px !important;
+            font-weight: 800 !important;
+            color: #64748b !important;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            margin-bottom: 7px !important;
+        }
+        div[data-testid="stRadio"] > div[role="radiogroup"] {
+            display: flex !important;
+            flex-wrap: wrap !important;
+            gap: 8px !important;
+            padding: 5px !important;
+            background: #f1f5f9;
+            border: 1px solid var(--border);
+            border-radius: 16px;
+        }
+        div[data-testid="stRadio"] > div[role="radiogroup"] label {
+            margin: 0 !important;
+            padding: 10px 15px !important;
+            border-radius: 11px !important;
+            border: 1px solid transparent !important;
+            background: transparent !important;
+            transition: all .18s ease !important;
+            cursor: pointer !important;
+        }
+        div[data-testid="stRadio"] > div[role="radiogroup"] label:hover {
+            background: #ffffff !important;
+            border-color: #dbe4f0 !important;
+        }
+        div[data-testid="stRadio"] > div[role="radiogroup"] label:has(input:checked) {
+            background: #ffffff !important;
+            border-color: #fdba74 !important;
+            box-shadow: 0 3px 10px rgba(15,23,42,.08) !important;
+            color: #c2410c !important;
+        }
+        div[data-testid="stRadio"] input {
+            accent-color: #ea580c !important;
+        }
+
+        /* ===== Поля ===== */
+        .stTextInput > label, .stSelectbox > label, .stSlider > label {
+            color: #475569 !important;
+            font-size: 12px !important;
+            font-weight: 750 !important;
+        }
+        .stTextInput input, .stSelectbox [data-baseweb="select"] > div {
+            border-radius: 12px !important;
+            border: 1px solid #dbe3ee !important;
+            min-height: 43px !important;
+            background: #fff !important;
+        }
+        .stTextInput input:focus {
+            border-color: #60a5fa !important;
+            box-shadow: 0 0 0 3px rgba(96,165,250,.14) !important;
+        }
+
+        /* ===== Кнопки ===== */
+        .stButton > button {
+            border-radius: 12px !important;
+            min-height: 43px !important;
+            font-weight: 700 !important;
+            border: 1px solid #dbe3ee !important;
+            background: #fff !important;
+            color: #334155 !important;
+            transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease !important;
+        }
+        .stButton > button:hover {
+            transform: translateY(-1px);
+            border-color: #93c5fd !important;
+            box-shadow: 0 6px 16px rgba(15,23,42,.08) !important;
+        }
+        .stButton > button[kind="primary"] {
+            background: linear-gradient(135deg, #ea580c, #c2410c) !important;
+            border: none !important;
+            color: white !important;
+            min-height: 48px !important;
+            box-shadow: 0 9px 22px rgba(234,88,12,.28) !important;
+        }
+        .stButton > button[kind="primary"]:hover {
+            box-shadow: 0 12px 28px rgba(234,88,12,.35) !important;
+        }
+
+        /* ===== Картки ===== */
+        [data-testid="stExpander"] {
+            border: 1px solid var(--border) !important;
+            border-radius: 16px !important;
+            background: var(--surface) !important;
+            box-shadow: 0 4px 16px rgba(15,23,42,.04) !important;
+            overflow: hidden;
+        }
+        [data-testid="stExpander"] summary {
+            font-weight: 700 !important;
+        }
+        .section-title {
+            font-size: 17px;
+            font-weight: 800;
+            color: #172033;
+            margin: 8px 0 10px;
+        }
+        .section-title span {
+            color: #94a3b8;
+            font-size: 12px;
+            font-weight: 700;
+            margin-left: 5px;
+        }
+
+        /* ===== Sidebar ===== */
+        [data-testid="stSidebar"] {
+            background: #f8fafc !important;
+            border-right: 1px solid #e2e8f0;
+        }
+        [data-testid="stSidebar"] .stTextArea textarea {
+            border-radius: 12px !important;
+        }
+
+        /* Автоперенос довгих слів */
+        .stMarkdown, div[data-testid="stText"], [data-testid="stMarkdownContainer"] {
+            word-break: break-word !important;
+            overflow-wrap: break-word !important;
+        }
+
+        @media screen and (max-width: 768px) {
+            .block-container { padding: .65rem .55rem 2rem !important; }
+            .app-hero { padding: 17px 15px; border-radius: 17px; }
+            .app-hero-title { font-size: 23px; }
+            .app-hero-icon { width: 40px; height: 40px; font-size: 20px; }
+            .app-hero-sub { margin-left: 0; font-size: 12px; }
+            div[data-testid="stRadio"] > div[role="radiogroup"] label {
+                flex: 1 1 calc(50% - 8px);
+                text-align: center;
+                padding: 10px 7px !important;
+            }
+            [data-testid="column"] {
+                width: 100% !important;
+                flex: 1 1 100% !important;
+                min-width: 100% !important;
+            }
+            .stButton > button { width: 100% !important; min-height: 45px !important; }
+            h1 { font-size: 1.5rem !important; }
+            h2 { font-size: 1.25rem !important; }
+            h3 { font-size: 1.1rem !important; }
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+
 if "ui_theme" not in st.session_state:
     st.session_state["ui_theme"] = "Світла"
 
 
-def apply_theme_css() -> None:
-    """Повні стилі для світлої та темної теми + руді акценти."""
-    dark = st.session_state.get("ui_theme") == "Темна"
-
-    if dark:
-        text, muted = "#e2e8f0", "#94a3b8"
-        border, surface, surface2 = "#334155", "#1e293b", "#0f172a"
-        app_bg = "linear-gradient(180deg, #0b1220 0%, #0f172a 420px)"
-        hero_bg, hero_title = "#1e293b", "#f8fafc"
-        radio_bg, radio_lab = "#0f172a", "#94a3b8"
-        radio_hover, radio_on = "#1e293b", "#1e293b"
-        radio_border_on, radio_color_on = "#fb923c", "#fdba74"
-        input_bg, input_border, input_label = "#0f172a", "#475569", "#cbd5e1"
-        btn_bg, btn_color, btn_border = "#1e293b", "#e2e8f0", "#475569"
-        sidebar_bg = "#0f172a"
-        metric_label = "#94a3b8"
-        md_color = "#e2e8f0"
-        expander_summary = "#e2e8f0"
-    else:
-        text, muted = "#172033", "#64748b"
-        border, surface, surface2 = "#e2e8f0", "#ffffff", "#f8fafc"
-        app_bg = "linear-gradient(180deg, #f8fafc 0%, #ffffff 430px)"
-        hero_bg, hero_title = "rgba(255,255,255,.95)", "#111827"
-        radio_bg, radio_lab = "#f1f5f9", "#64748b"
-        radio_hover, radio_on = "#ffffff", "#ffffff"
-        radio_border_on, radio_color_on = "#fdba74", "#c2410c"
-        input_bg, input_border, input_label = "#ffffff", "#dbe3ee", "#475569"
-        btn_bg, btn_color, btn_border = "#ffffff", "#334155", "#dbe3ee"
-        sidebar_bg = "#f8fafc"
-        metric_label = "#64748b"
-        md_color = "#172033"
-        expander_summary = "#172033"
-
+def apply_dark_theme_overrides() -> None:
+    if st.session_state.get("ui_theme") != "Темна":
+        return
     st.markdown(
-        f"""
+        """
         <style>
-            :root {{
-                --text: {text};
-                --muted: {muted};
-                --border: {border};
-                --surface: {surface};
-                --surface-2: {surface2};
-                --accent: #ea580c;
-                --accent-2: #c2410c;
-            }}
-
-            footer {{ visibility: hidden; }}
-
-            .stApp {{
-                background: {app_bg} !important;
-                color: {text} !important;
-            }}
-
-            .block-container {{
-                max-width: 1440px !important;
-                padding: 1.15rem 1.35rem 3rem !important;
-            }}
-
-            html, body, .stApp {{
-                overflow-x: hidden !important;
-                max-width: 100vw !important;
-            }}
-
-            /* Текст Streamlit */
-            .stMarkdown, .stMarkdown p, .stMarkdown li, .stMarkdown span,
-            [data-testid="stMarkdownContainer"], [data-testid="stMarkdownContainer"] p,
-            [data-testid="stCaption"], label, .stText {{
-                color: {md_color} !important;
-            }}
-            h1, h2, h3, h4 {{
-                color: {hero_title} !important;
-            }}
-
-            /* Шапка */
-            .app-hero {{
-                background: {hero_bg} !important;
-                border: 1px solid {border} !important;
-                border-radius: 22px;
-                padding: 22px 26px;
-                margin-bottom: 18px;
-                box-shadow: 0 8px 28px rgba(0,0,0,.08);
-            }}
-            .app-hero-title {{
-                display: flex;
-                align-items: center;
-                gap: 12px;
-                color: {hero_title} !important;
-                font-size: 30px;
-                font-weight: 800;
-                letter-spacing: -.7px;
-                line-height: 1.1;
-            }}
-            .app-hero-icon {{
-                width: 46px; height: 46px;
-                display: grid; place-items: center;
-                border-radius: 14px;
-                background: linear-gradient(135deg, #ea580c, #c2410c);
-                color: white;
-                font-size: 24px;
-                box-shadow: 0 8px 18px rgba(234,88,12,.25);
-            }}
-            .app-hero-sub {{
-                color: {muted} !important;
-                margin: 8px 0 0 58px;
-                font-size: 14px;
-            }}
-
-            /* Радіо (категорії) */
-            div[data-testid="stRadio"] > label {{
-                font-size: 12px !important;
-                font-weight: 800 !important;
-                color: {radio_lab} !important;
-                text-transform: uppercase;
-                letter-spacing: .08em;
-                margin-bottom: 7px !important;
-            }}
-            div[data-testid="stRadio"] > div[role="radiogroup"] {{
-                display: flex !important;
-                flex-wrap: wrap !important;
-                gap: 8px !important;
-                padding: 5px !important;
-                background: {radio_bg} !important;
-                border: 1px solid {border} !important;
-                border-radius: 16px;
-            }}
-            div[data-testid="stRadio"] > div[role="radiogroup"] label {{
-                margin: 0 !important;
-                padding: 10px 15px !important;
-                border-radius: 11px !important;
-                border: 1px solid transparent !important;
-                background: transparent !important;
-                color: {text} !important;
-                transition: all .18s ease !important;
-                cursor: pointer !important;
-            }}
-            div[data-testid="stRadio"] > div[role="radiogroup"] label:hover {{
-                background: {radio_hover} !important;
-                border-color: {border} !important;
-            }}
-            div[data-testid="stRadio"] > div[role="radiogroup"] label:has(input:checked) {{
-                background: {radio_on} !important;
-                border-color: {radio_border_on} !important;
-                box-shadow: 0 3px 10px rgba(234,88,12,.15) !important;
-                color: {radio_color_on} !important;
-            }}
-            div[data-testid="stRadio"] input {{
-                accent-color: #ea580c !important;
-            }}
-
-            /* Поля */
-            .stTextInput > label, .stSelectbox > label, .stSlider > label, .stTextArea > label {{
-                color: {input_label} !important;
-                font-size: 12px !important;
-                font-weight: 750 !important;
-            }}
-            .stTextInput input, .stSelectbox [data-baseweb="select"] > div, .stTextArea textarea {{
-                border-radius: 12px !important;
-                border: 1px solid {input_border} !important;
-                min-height: 43px !important;
-                background: {input_bg} !important;
-                color: {text} !important;
-            }}
-            .stTextInput input:focus {{
-                border-color: #fb923c !important;
-                box-shadow: 0 0 0 3px rgba(234,88,12,.18) !important;
-            }}
-
-            /* Кнопки — рудий акцент */
-            .stButton > button {{
-                border-radius: 12px !important;
-                min-height: 43px !important;
-                font-weight: 700 !important;
-                border: 1px solid {btn_border} !important;
-                background: {btn_bg} !important;
-                color: {btn_color} !important;
-                transition: transform .16s ease, box-shadow .16s ease !important;
-            }}
-            .stButton > button:hover {{
-                transform: translateY(-1px);
-                border-color: #fb923c !important;
-                box-shadow: 0 6px 16px rgba(234,88,12,.15) !important;
-            }}
-            .stButton > button[kind="primary"] {{
+            .stApp, [data-testid="stAppViewContainer"],
+            [data-testid="stAppViewContainer"] > .main, section.main, .main {
+                background-color: #0f172a !important; color: #e8eef7 !important;
+            }
+            [data-testid="stHeader"] { background: #0f172a !important; }
+            html, body { background: #0f172a !important; }
+            .stMarkdown, .stMarkdown p, [data-testid="stMarkdownContainer"],
+            [data-testid="stMarkdownContainer"] p, [data-testid="stCaption"], label {
+                color: #e8eef7 !important;
+            }
+            h1, h2, h3, h4 { color: #f1f5f9 !important; }
+            .app-hero { background: #1e293b !important; border-color: #334155 !important; }
+            .app-hero-title { color: #f1f5f9 !important; }
+            .app-hero-sub { color: #94a3b8 !important; }
+            div[data-testid="stRadio"] > div[role="radiogroup"] {
+                background: #1e293b !important; border-color: #334155 !important;
+            }
+            div[data-testid="stRadio"] > div[role="radiogroup"] label { color: #e8eef7 !important; }
+            div[data-testid="stRadio"] > div[role="radiogroup"] label:has(input:checked) {
+                background: #0f172a !important; border-color: #fb923c !important; color: #fdba74 !important;
+            }
+            .stTextInput input, .stSelectbox [data-baseweb="select"] > div, .stTextArea textarea {
+                background: #0f172a !important; color: #e8eef7 !important; border-color: #475569 !important;
+            }
+            .stButton > button {
+                background: #1e293b !important; color: #e2e8f0 !important; border-color: #475569 !important;
+            }
+            .stButton > button[kind="primary"] {
                 background: linear-gradient(135deg, #ea580c, #c2410c) !important;
-                border: none !important;
-                color: white !important;
-                min-height: 48px !important;
-                box-shadow: 0 9px 22px rgba(234,88,12,.28) !important;
-            }}
-            .stButton > button[kind="primary"]:hover {{
-                box-shadow: 0 12px 28px rgba(234,88,12,.38) !important;
-            }}
-
-            /* Expander / картки */
-            [data-testid="stExpander"] {{
-                border: 1px solid {border} !important;
-                border-radius: 16px !important;
-                background: {surface} !important;
-                box-shadow: 0 4px 16px rgba(0,0,0,.06) !important;
-                overflow: hidden;
-            }}
-            [data-testid="stExpander"] summary {{
-                font-weight: 700 !important;
-                color: {expander_summary} !important;
-            }}
-            .section-title {{
-                font-size: 17px;
-                font-weight: 800;
-                color: {hero_title} !important;
-                margin: 8px 0 10px;
-            }}
-            .section-title span {{
-                color: {muted};
-                font-size: 12px;
-                font-weight: 700;
-                margin-left: 5px;
-            }}
-
-            /* Sidebar */
-            [data-testid="stSidebar"] {{
-                background: {sidebar_bg} !important;
-                border-right: 1px solid {border} !important;
-            }}
-            [data-testid="stSidebar"] .stTextArea textarea {{
-                border-radius: 12px !important;
-                background: {input_bg} !important;
-                color: {text} !important;
-            }}
-            [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {{
-                color: {text} !important;
-            }}
-
-            /* Метрики */
-            [data-testid="stMetricLabel"] {{ color: {metric_label} !important; }}
-            [data-testid="stMetricValue"] {{ color: {hero_title} !important; }}
-
-            /* Алерти / info */
-            [data-testid="stAlert"] {{
-                background: {surface} !important;
-                color: {text} !important;
-                border: 1px solid {border} !important;
-            }}
-
-            /* Автоперенос */
-            .stMarkdown, div[data-testid="stText"], [data-testid="stMarkdownContainer"] {{
-                word-break: break-word !important;
-                overflow-wrap: break-word !important;
-            }}
-
-            iframe {{ max-width: 100% !important; }}
-
-            @media screen and (max-width: 768px) {{
-                .block-container {{ padding: .65rem .55rem 2rem !important; }}
-                .app-hero {{ padding: 17px 15px; border-radius: 17px; }}
-                .app-hero-title {{ font-size: 23px; }}
-                .app-hero-icon {{ width: 40px; height: 40px; font-size: 20px; }}
-                .app-hero-sub {{ margin-left: 0; font-size: 12px; }}
-                div[data-testid="stRadio"] > div[role="radiogroup"] label {{
-                    flex: 1 1 calc(50% - 8px);
-                    text-align: center;
-                    padding: 10px 7px !important;
-                }}
-                [data-testid="column"] {{
-                    width: 100% !important;
-                    flex: 1 1 100% !important;
-                    min-width: 100% !important;
-                }}
-                .stButton > button {{ width: 100% !important; min-height: 45px !important; }}
-                h1 {{ font-size: 1.5rem !important; }}
-                h2 {{ font-size: 1.25rem !important; }}
-                h3 {{ font-size: 1.1rem !important; }}
-            }}
+                color: #fff !important; border: none !important;
+            }
+            [data-testid="stExpander"] { background: #1e293b !important; border-color: #334155 !important; }
+            [data-testid="stExpander"] summary { color: #e8eef7 !important; }
+            .section-title { color: #f1f5f9 !important; }
+            [data-testid="stSidebar"], [data-testid="stSidebar"] > div:first-child {
+                background-color: #0b1220 !important; border-right: 1px solid #334155 !important;
+            }
+            [data-testid="stSidebar"] [data-testid="stMarkdownContainer"],
+            [data-testid="stSidebar"] label { color: #e8eef7 !important; }
+            [data-testid="stMetricValue"] { color: #f1f5f9 !important; }
+            [data-testid="stMetricLabel"] { color: #94a3b8 !important; }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
 
-apply_theme_css()
+apply_dark_theme_overrides()
 
 
 def _news_locale(domain: str) -> tuple[str, str, str]:
@@ -872,7 +862,7 @@ def _render_market_dashboard_body(category: str, watchlist: list[str]) -> None:
             use_container_width=True,
         ):
             st.session_state[chart_visible_key] = not st.session_state[chart_visible_key]
-            st.rerun()
+            # Streamlit і так перезапустить скрипт після кліку — без зайвого st.rerun()
 
     is_crypto_category = category == "Криптовалюти"
     asset_data = []
@@ -978,7 +968,10 @@ def _render_market_dashboard_body(category: str, watchlist: list[str]) -> None:
             unsafe_allow_html=True,
         )
     with col_pause:
-        st.toggle("⏸ Пауза", key="market_autorefresh_paused", on_change=_force_full_rerun)
+        if st.session_state.get("analysis_in_progress"):
+            st.caption("⏸ Пауза (аналіз…)")
+        else:
+            st.toggle("⏸ Пауза", key="market_autorefresh_paused", on_change=_force_full_rerun)
     with col_button:
         if st.button("Оновити", key=f"refresh_btn_{category}_{selected_asset}", use_container_width=True):
             twelve_history.clear()
@@ -1045,11 +1038,15 @@ def _market_dashboard_paused(category: str, watchlist: list[str]) -> None:
 def render_market_dashboard(category: str, watchlist: list[str]) -> None:
     if category not in ("Фінанси", "Криптовалюти", "Ілон Маск / компанії"):
         return
-    paused = st.session_state.get("market_autorefresh_paused", False)
-    if paused:
-        _market_dashboard_paused(category, watchlist)
-    else:
-        _market_dashboard_live(category, watchlist)
+    analyzing = st.session_state.get("analysis_in_progress", False)
+    paused = analyzing or st.session_state.get("market_autorefresh_paused", False)
+    try:
+        if paused:
+            _market_dashboard_paused(category, watchlist)
+        else:
+            _market_dashboard_live(category, watchlist)
+    except Exception as err:
+        st.warning(f"Ринковий дашборд тимчасово недоступний: {err}")
 
 
 def plain_text(value: str) -> str:
@@ -1419,9 +1416,7 @@ with st.sidebar:
         ("Світла", "Темна"),
         horizontal=True,
         key="ui_theme",
-        help="Світла або темна тема всього додатку",
     )
-    # Після зміни теми CSS уже застосовано на цьому ж проході через session_state
     watchlist_text = st.text_area(
         "Мої активи та компанії",
         value="Tesla, Nvidia, Apple, Bitcoin, Ethereum, Solana",
@@ -1526,10 +1521,8 @@ if not active_sources:
     active_sources = dict(config["sources"])
 
 
-def render_top(result):
-    """Малює блок статей і ринковий дашборд. Викликається одразу після
-    збору статей (аналіз ще не готовий) і повторно на звичайних rerun'ах
-    (перемикання активу тощо) — з result, узятого із session_state."""
+def render_top(result, skip_market: bool = False):
+    """Малює блок статей і (опційно) ринковий дашборд."""
     r_category = result["category"]
     r_articles = result["all_articles"]
 
@@ -1570,7 +1563,11 @@ def render_top(result):
                     st.write(f"«{article['title'][:70]}» → {article['link']}")
                     shown += 1
 
-    render_market_dashboard(r_category, result["watchlist"])
+    if not skip_market and not st.session_state.get("analysis_in_progress"):
+        try:
+            render_market_dashboard(r_category, result.get("watchlist") or [])
+        except Exception as err:
+            st.warning(f"Не вдалося відобразити ринковий дашборд: {err}")
 
     left_articles, analysis_column, right_articles = st.columns((1.6, 2, 1.6), gap="large")
     with left_articles:
@@ -1631,7 +1628,7 @@ def render_analysis(container, result):
 
             st.markdown(result["analysis_text"])
             if r_category in ("Фінанси", "Криптовалюти"):
-                st.caption("Це аналіз новин, а не інвестиційна порада.", key=f"disclaimer_{category}")
+                st.caption("Це аналіз новин, а не інвестиційна порада.")
         else:
             # Якщо під час обробки передано поточну модель, показуємо її
             current_provider = result.get("current_provider")
@@ -1682,6 +1679,9 @@ with btn_col3:
 do_collect = run_full or run_update_articles
 do_analyze = run_full or run_regen_analysis
 
+if not do_analyze:
+    st.session_state["analysis_in_progress"] = False
+
 if do_collect:
     with st.spinner("🚀 Завантажую статті та фотографії у кілька потоків..."):
         all_articles, problems = collect_articles(active_sources, topic, hours)
@@ -1710,16 +1710,15 @@ if do_collect:
 
     if run_update_articles and not run_full:
         analysis_column = render_top(st.session_state["result"])
-        with analysis_column:
-            analysis_placeholder = st.empty()
         render_text_diagnostics(st.session_state["result"].get("text_diagnostics", []))
-        render_analysis(analysis_placeholder, st.session_state["result"])
-        st.rerun()
+        render_analysis(analysis_column, st.session_state["result"])
 
 if do_analyze:
     if "result" not in st.session_state or not st.session_state["result"].get("all_articles"):
         st.error("Спочатку зберіть статті кнопкою «Зібрати та проаналізувати» або «Оновити статті».")
         st.stop()
+
+    st.session_state["analysis_in_progress"] = True
 
     result_ref = st.session_state["result"]
     all_articles = result_ref["all_articles"]
@@ -1728,7 +1727,8 @@ if do_analyze:
     result_ref["analysis_meta"] = None
     result_ref["analysis_attempts"] = []
 
-    analysis_column = render_top(result_ref)
+    # Без ринку/TradingView — інакше плейсхолдер середньої колонки «вмирає»
+    analysis_column = render_top(result_ref, skip_market=True)
     with analysis_column:
         analysis_placeholder = st.empty()
     render_analysis(analysis_placeholder, result_ref)
@@ -2096,25 +2096,29 @@ if do_analyze:
             if analysis_text is None and errors:
                 analysis_error = " | ".join(errors)
 
-# 1. Збереження аналізу (без st.rerun — інакше текст зникає з екрана)
+# 1. Фінальне збереження в session_state
+    _attempts = locals().get("errors") or []
+    _providers_ok = bool(locals().get("providers"))
     st.session_state["result"].update({
         "analysis_text": analysis_text,
         "analysis_error": analysis_error,
         "analysis_meta": analysis_meta,
-        "analysis_attempts": locals().get("errors") or [],
+        "analysis_attempts": _attempts if _providers_ok else [],
         "text_diagnostics": text_diagnostics,
     })
     st.session_state["results_by_category"][category] = st.session_state["result"]
+    st.session_state["analysis_in_progress"] = False
 
-    render_text_diagnostics(st.session_state["result"].get("text_diagnostics", []))
-    render_analysis(analysis_placeholder, st.session_state["result"])
+    # 2. Повний rerun — єдиний надійний спосіб показати аналіз + TradingView.
+    #    Оновлення analysis_placeholder у тому ж запуску в категоріях з ринком
+    #    не відображається (плейсхолдер «мертвий»); після зміни категорії
+    #    аналіз уже був у session_state — тому і з’являвся. Робимо те саме автоматично.
+    st.rerun()
 
 # Якщо аналіз уже є в пам'яті для поточної категорії — показуємо без повторного збору
 elif not do_collect and not do_analyze and "result" in st.session_state:
     result = st.session_state["result"]
     if result.get("category") == category:
         analysis_column = render_top(result)
-        with analysis_column:
-            analysis_placeholder = st.empty()
         render_text_diagnostics(result.get("text_diagnostics", []))
-        render_analysis(analysis_placeholder, result)
+        render_analysis(analysis_column, result)
