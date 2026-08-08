@@ -380,18 +380,19 @@ st.markdown(
                 display: flex !important;
                 flex-wrap: wrap !important;
             }
-            /* Колонка аналізу — зверху, на всю ширину, з власною прокруткою */
+            /*
+              Колонка аналізу — зверху на всю ширину.
+              БЕЗ max-height/overflow: на мобільному вкладений scroll
+              у колонці Streamlit часто «зрізає» текст посередині речення.
+              Горизонтально — на всю ширину; вертикально гортає вся сторінка.
+            */
             [data-testid="column"]:has(.analysis-panel-marker) {
                 order: -1 !important;
                 width: 100% !important;
                 flex: 1 1 100% !important;
                 max-width: 100% !important;
-                max-height: min(72vh, 820px);
-                overflow-y: auto !important;
-                -webkit-overflow-scrolling: touch;
-                overscroll-behavior: contain;
                 padding: 12px 10px 16px !important;
-                margin: 0 0 12px 0 !important;
+                margin: 0 0 14px 0 !important;
                 border: 1px solid #e2e8f0 !important;
                 border-radius: 16px !important;
                 background: #ffffff !important;
@@ -399,6 +400,8 @@ st.markdown(
             }
             .analysis-panel {
                 padding: 0;
+                overflow: visible !important;
+                max-height: none !important;
             }
             .stButton > button { width: 100% !important; min-height: 45px !important; }
             h1 { font-size: 1.5rem !important; }
@@ -498,8 +501,10 @@ def apply_dark_theme_overrides() -> None:
                 [data-testid="column"]:has(.analysis-panel-marker) {
                     background: #1e293b !important;
                     border-color: #334155 !important;
+                    max-height: none !important;
+                    overflow: visible !important;
                 }
-                .analysis-panel { color: #e8eef7 !important; }
+                .analysis-panel { color: #e8eef7 !important; max-height: none !important; }
             }
         </style>
         """,
@@ -1031,17 +1036,19 @@ def _render_market_dashboard_body(category: str, watchlist: list[str]) -> None:
     selected_asset = st.session_state.get(f"chart_asset_{category}", labels[0])
     chart_type = st.session_state.get(f"chart_type_{category}", "Лінійний")
 
-    col_title, col_pause, col_button = st.columns([2.6, 1.2, 1], gap="small")
+    col_title, col_status, col_button = st.columns([2.6, 1.2, 1], gap="small")
     with col_title:
         st.markdown(
             f"<h3 style='margin:0'>{selected_asset} · {selected_interval} · {selected_period}</h3>",
             unsafe_allow_html=True,
         )
-    with col_pause:
+    with col_status:
         if st.session_state.get("analysis_in_progress"):
             st.caption("⏸ Пауза (аналіз…)")
+        elif st.session_state.get("market_autorefresh_paused"):
+            st.caption("⏸ Автооновлення вимкнено")
         else:
-            st.toggle("⏸ Пауза", key="market_autorefresh_paused", on_change=_force_full_rerun)
+            st.caption("🔄 Автооновлення 30с")
     with col_button:
         if st.button("Оновити", key=f"refresh_btn_{category}_{selected_asset}", use_container_width=True):
             twelve_history.clear()
@@ -1088,13 +1095,6 @@ def _render_market_dashboard_body(category: str, watchlist: list[str]) -> None:
     )
 
 
-def _force_full_rerun() -> None:
-    # Тумблер паузи живе всередині фрагмента, а обирає між
-    # live/paused-фрагментом код ЗА МЕЖАМИ фрагмента (нижче) — тож без
-    # примусового full-app rerun перемикання паузи не встигало б підхопитись.
-    st.rerun()
-
-
 @st.fragment(run_every="30s")
 def _market_dashboard_live(category: str, watchlist: list[str]) -> None:
     _render_market_dashboard_body(category, watchlist)
@@ -1109,6 +1109,16 @@ def render_market_dashboard(category: str, watchlist: list[str]) -> None:
     if category not in ("Фінанси", "Криптовалюти", "Ілон Маск / компанії"):
         return
     analyzing = st.session_state.get("analysis_in_progress", False)
+
+    # Тумблер ПАУЗИ поза фрагментом: клік дає повний rerun скрипта
+    # (всередині fragment + on_change→st.rerun() у нових Streamlit — no-op / попередження).
+    if not analyzing:
+        st.toggle(
+            "⏸ Пауза автооновлення графіка",
+            key="market_autorefresh_paused",
+            help="Зупиняє оновлення котирувань кожні 30 с. Графік TradingView лишається.",
+        )
+
     paused = analyzing or st.session_state.get("market_autorefresh_paused", False)
     try:
         if paused:
