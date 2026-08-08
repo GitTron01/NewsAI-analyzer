@@ -34,6 +34,7 @@ TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY")
 COINMARKETCAP_API_KEY = os.getenv("COINMARKETCAP_API_KEY")
 RSS_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 SAVED_ARTICLES_FILE = Path(__file__).with_name("saved_articles.json")
+SETTINGS_FILE = Path(__file__).with_name("ui_settings.json")
 
 # ВАЖЛИВО: значення в "sources" — це ДОМЕНИ (не прямі RSS-адреси).
 # Прямі RSS-фіди новинних агенцій (Reuters, AP, Ukrinform тощо) регулярно
@@ -353,6 +354,11 @@ st.markdown(
             overflow-wrap: break-word !important;
         }
 
+        /* Картка аналізу — на ПК майже непомітна (без обмеження висоти) */
+        .analysis-panel {
+            padding: 4px 2px 8px;
+        }
+
         @media screen and (max-width: 768px) {
             .block-container { padding: .65rem .55rem 2rem !important; }
             .app-hero { padding: 17px 15px; border-radius: 17px; }
@@ -369,10 +375,37 @@ st.markdown(
                 flex: 1 1 100% !important;
                 min-width: 100% !important;
             }
+            /* Лише рядок статей+аналіз (має .analysis-panel-marker) */
+            [data-testid="stHorizontalBlock"]:has(.analysis-panel-marker) {
+                display: flex !important;
+                flex-wrap: wrap !important;
+            }
+            /* Колонка аналізу — зверху, на всю ширину, з власною прокруткою */
+            [data-testid="column"]:has(.analysis-panel-marker) {
+                order: -1 !important;
+                width: 100% !important;
+                flex: 1 1 100% !important;
+                max-width: 100% !important;
+                max-height: min(72vh, 820px);
+                overflow-y: auto !important;
+                -webkit-overflow-scrolling: touch;
+                overscroll-behavior: contain;
+                padding: 12px 10px 16px !important;
+                margin: 0 0 12px 0 !important;
+                border: 1px solid #e2e8f0 !important;
+                border-radius: 16px !important;
+                background: #ffffff !important;
+                box-shadow: 0 6px 20px rgba(15, 23, 42, .07) !important;
+            }
+            .analysis-panel {
+                padding: 0;
+            }
             .stButton > button { width: 100% !important; min-height: 45px !important; }
             h1 { font-size: 1.5rem !important; }
             h2 { font-size: 1.25rem !important; }
             h3 { font-size: 1.1rem !important; }
+            /* TradingView на вузькому екрані */
+            iframe { max-width: 100% !important; }
         }
     </style>
     """,
@@ -381,8 +414,37 @@ st.markdown(
 
 
 
+def load_ui_settings() -> dict:
+    try:
+        data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_ui_settings() -> None:
+    """Зберігає тему інтерфейсу/графіка на диск — переживає оновлення сторінки."""
+    payload = {
+        "ui_theme": st.session_state.get("ui_theme", "Світла"),
+        "chart_theme": st.session_state.get("chart_theme", "Темна 🌙"),
+    }
+    try:
+        prev = load_ui_settings()
+        if prev == payload:
+            return
+        SETTINGS_FILE.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+
+_saved_ui = load_ui_settings()
 if "ui_theme" not in st.session_state:
-    st.session_state["ui_theme"] = "Світла"
+    st.session_state["ui_theme"] = _saved_ui.get("ui_theme") or "Світла"
+if "chart_theme" not in st.session_state:
+    st.session_state["chart_theme"] = _saved_ui.get("chart_theme") or "Темна 🌙"
 
 
 def apply_dark_theme_overrides() -> None:
@@ -432,6 +494,13 @@ def apply_dark_theme_overrides() -> None:
             [data-testid="stSidebar"] label { color: #e8eef7 !important; }
             [data-testid="stMetricValue"] { color: #f1f5f9 !important; }
             [data-testid="stMetricLabel"] { color: #94a3b8 !important; }
+            @media screen and (max-width: 768px) {
+                [data-testid="column"]:has(.analysis-panel-marker) {
+                    background: #1e293b !important;
+                    border-color: #334155 !important;
+                }
+                .analysis-panel { color: #e8eef7 !important; }
+            }
         </style>
         """,
         unsafe_allow_html=True,
@@ -953,6 +1022,7 @@ def _render_market_dashboard_body(category: str, watchlist: list[str]) -> None:
             index=0 if st.session_state["chart_theme"] == "Темна 🌙" else 1,
             key=f"theme_radio_{category}",
         )
+        save_ui_settings()
 
     selected_period = st.session_state.get(f"timeframe_{category}", "1Д")
     interval_options = CRYPTO_CHART_INTERVALS.get(selected_period, ["15хв", "1г", "1д"])
@@ -1416,7 +1486,10 @@ with st.sidebar:
         ("Світла", "Темна"),
         horizontal=True,
         key="ui_theme",
+        on_change=save_ui_settings,
     )
+    # На випадок першого завантаження / зміни без on_change
+    save_ui_settings()
     watchlist_text = st.text_area(
         "Мої активи та компанії",
         value="Tesla, Nvidia, Apple, Bitcoin, Ethereum, Solana",
@@ -1602,13 +1675,20 @@ def render_text_diagnostics(text_diagnostics):
 
 
 def render_analysis(container, result):
-    """container — або колонка (перший прохід), або st.empty()-плейсхолдер
-    (оновлення тим самим блоком після готовності аналізу)."""
+    """container — колонка або st.empty()-плейсхолдер.
+    Текст аналізу в .analysis-panel: на ПК без обмежень, на телефоні —
+    окреме вікно з прокруткою (див. @media у CSS)."""
     r_category = result["category"]
     with container:
+        # Маркер для CSS :has() — на телефоні піднімає цю колонку вгору
+        st.markdown(
+            '<div class="analysis-panel-marker" style="display:none" aria-hidden="true"></div>',
+            unsafe_allow_html=True,
+        )
         if result["analysis_error"]:
             st.error(f"Помилка аналізу: {result['analysis_error']}")
         elif result["analysis_text"]:
+            st.markdown('<div class="analysis-panel">', unsafe_allow_html=True)
             meta = result.get("analysis_meta")
             if meta:
                 st.success(
@@ -1621,7 +1701,6 @@ def render_analysis(container, result):
             attempts = result.get("analysis_attempts") or []
             if attempts:
                 with st.expander(f"⚠️ Невдалі спроби перед успіхом ({len(attempts)})"):
-                    # height=140 обмежує висоту блоку до 2-3 рядків із внутрішньою прокруткою
                     with st.container(height=140):
                         for attempt in attempts:
                             st.caption(format_error_compact(attempt))
@@ -1629,11 +1708,10 @@ def render_analysis(container, result):
             st.markdown(result["analysis_text"])
             if r_category in ("Фінанси", "Криптовалюти"):
                 st.caption("Це аналіз новин, а не інвестиційна порада.")
+            st.markdown("</div>", unsafe_allow_html=True)
         else:
-            # Якщо під час обробки передано поточну модель, показуємо її
             current_provider = result.get("current_provider")
             current_model = result.get("current_model")
-            
             if current_provider and current_model:
                 st.info(f"🧠 Аналізую статті за допомогою **{current_provider} / {current_model}**...")
             else:
