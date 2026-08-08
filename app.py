@@ -1881,8 +1881,12 @@ if do_analyze:
 2. КАТЕГОРИЧНО ЗАБОРОНЕНО згадувати будь-які сторонні компанії, активи чи технології (наприклад: Tesla, Nvidia, Apple, Bitcoin, Ethereum, Solana тощо), якщо вони прямо не згадуються у вхідних статтях. Навіть у розділі "Сліпі плями" не вигадуй відсутні ринки чи тікери, якщо їх немає в тексті новин.
 3. ВИМОГА ПОКРИТТЯ ВСІХ РЕГІОНІВ: Переконайся, що у висновках збалансовано враховано всі ключові регіональні блоки з новинного корпусу (включаючи події в Україні/Європі, Близькому Сході та Азії). Не ігноруй регіональні джерела новин.
 4. Посилайся на джерела за назвою (наприклад, «за даними Reuters...», «як повідомляє Укрінформ...»).
-5. Дотримуйся чіткої, стислої та аналітичної мови. Кожен із 5 пунктів структури має бути обсягом 60–90 слів.
-6. Виводь ТІЛЬКИ готовий текст аналітичного звіту. Жодних приміток, вступів чи службових коментарів.
+5. СТИСЛІСТЬ: кожен із 5 пунктів — 3–5 коротких речень (орієнтовно до 80 слів). Не роздувай перший пункт.
+6. ОБОВʼЯЗКОВО заверши ВСІ 5 пунктів. Не обривай текст посередині.
+7. Виводь ТІЛЬКИ готовий текст аналітичного звіту українською. Категорично ЗАБОРОНЕНО:
+   - мета-коментарі, чернетки, "Drafting", "Word count", "Section", підрахунок слів/речень;
+   - англійські фрази (крім назв джерел і власних назв);
+   - службові примітки, вступи на кшталт «Ось аналіз:», перевірочні списки.
 
 НАДАНИЙ НОВИННИЙ КОРПУС СТАТЕЙ:
 {raw_text}
@@ -1900,8 +1904,37 @@ if do_analyze:
         "жодного слова, фрази чи заголовка англійською чи будь-якою іншою мовою "
         "в тексті відповіді, навіть якщо матеріали для аналізу — англомовні. "
         "Назви джерел (Reuters, AP News тощо) і власні назви можна лишати як є, "
-        "решта тексту — тільки українською."
+        "решта тексту — тільки українською. "
+        "Не пиши чернеток, підрахунків слів, Word count, Drafting, Section checks "
+        "і жодних службових коментарів — лише готовий звіт із 5 пунктів."
     )
+
+    def clean_analysis_text(raw: str) -> str:
+        """Прибирає типові «протікання» моделі: word count, drafting, англ. мета-рядки."""
+        if not raw:
+            return raw
+        cleaned = raw
+        # Блоки <thought>...</thought> (на всяк випадок)
+        cleaned = re.sub(r"(?is)<thought>.*?</thought>", "", cleaned)
+        # Рядки з мета-службовим сміттям
+        meta_re = re.compile(
+            r"(?im)^.*\b("
+            r"word\s*count|drafting|section\s*\d+|word count check|"
+            r"check\s*\(section|tokens? used|я напишу|ось чернетк"
+            r")\b.*$"
+        )
+        cleaned = "\n".join(
+            line for line in cleaned.splitlines() if not meta_re.match(line.strip())
+        )
+        # Залишки типу «Word count check (Section 3): 1) 2) 3)» в одному рядку з текстом
+        cleaned = re.sub(
+            r"(?i)\s*Word count check\s*\([^)]*\)\s*:?\s*",
+            " ",
+            cleaned,
+        )
+        cleaned = re.sub(r"(?i)\s*\*\s*Drafting\s*:?\s*", " ", cleaned)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+        return cleaned
 
     def call_gemini_native(model_name: str, prompt_text: str, api_key: str, max_tokens: int, temperature: float) -> str:
         """Нові ключі Google (формат `AQ.Ab...`, т.зв. auth keys) мають
@@ -2113,8 +2146,14 @@ if do_analyze:
                             errors.append(f"Prompt Build Error: {p_err}")
                             break
 
-                        max_out_tokens = 2048 if provider["name"] == "Groq" else 3000
-                        temperature = 0.15  # 👈 Додай це тут
+                        # 3000 часто обрізало 4–5-й пункти; Gemini тримає 8k+
+                        if provider.get("native") or "Gemini" in provider["name"]:
+                            max_out_tokens = 8192
+                        elif provider["name"] == "Groq":
+                            max_out_tokens = 4096
+                        else:
+                            max_out_tokens = 6144
+                        temperature = 0.15
 
                         analysis_placeholder.info(
                             f"🧠 Аналізую статті за допомогою **{provider['name']} / {model_name}** "
@@ -2134,9 +2173,12 @@ if do_analyze:
                                 if not client:
                                     raise RuntimeError("OpenAI client не ініціалізовано")
 
-                                completion = client.chat.completions.create(  # 👈 ТУТ МАЄ БУТИ client.chat.completions.create (без додаткового .client)
+                                completion = client.chat.completions.create(
                                     model=model_name,
-                                    messages=[{"role": "user", "content": prompt_text}],
+                                    messages=[
+                                        {"role": "system", "content": SYSTEM_INSTRUCTION_UK},
+                                        {"role": "user", "content": prompt_text},
+                                    ],
                                     max_tokens=max_out_tokens,
                                     temperature=temperature,
                                     extra_body=provider.get("extra_body"),
@@ -2147,8 +2189,22 @@ if do_analyze:
                                     raw_content = raw_content.split("</thought>")[-1]
                                 current_text = raw_content.strip()
 
+                            current_text = clean_analysis_text(current_text or "")
+
                             if not current_text:
                                 raise RuntimeError("Модель повернула порожню відповідь (0 символів)")
+
+                            # Якщо немає 5-го пункту — відповідь майже напевно обрізана лімітом токенів
+                            lower = current_text.lower()
+                            has_p5 = (
+                                "5." in current_text
+                                or "**стратегічний" in lower
+                                or "стратегічний прогноз" in lower
+                            )
+                            if not has_p5 and article_count >= 5:
+                                raise RuntimeError(
+                                    "Відповідь обрізана (немає 5-го пункту) — спроба з меншим обсягом/іншою моделлю"
+                                )
 
                             analysis_text = current_text
                             analysis_error = None
